@@ -1,0 +1,25 @@
+.loader {
+  border: 2px solid #c2c2c2;
+  border-top: 2px solid #ff1d1d;
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.table-fixed thead th {
+  position: sticky;
+  top: 0;
+  background: #1f2937; /* bg-neutral-800 */
+  z-index: 10;
+}
