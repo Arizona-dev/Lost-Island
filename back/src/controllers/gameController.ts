@@ -4,7 +4,7 @@ import {
   getGame,
   getGames,
   joinGameService,
-  startGame,
+  startGameService,
 } from "../services/gameService";
 
 export const createGameController = async (req: Request, res: Response) => {
@@ -48,7 +48,7 @@ export const joinGameController = async (req: Request, res: Response) => {
 
 export const startGameController = async (req: Request, res: Response) => {
   try {
-    const game = await startGame(req.params.id);
+    const game = await startGameService(req.params.id);
     if (!game) {
       return res.status(404).send("Game not found or unable to start");
     }

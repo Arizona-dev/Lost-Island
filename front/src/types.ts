@@ -71,6 +71,8 @@ export type WreckageObject = {
   usage: "unique" | "permanent";
   description: string;
   effect: Effect;
+  image: string;
+  isHidden: boolean;
 };
 
 export type Weather = {
@@ -84,6 +86,12 @@ export type ResourceIndicator = {
   water: number;
   wood: number;
   raftProgress: number;
+};
+
+export type Voting = {
+  playerId: string;
+  targetPlayerId: string;
+  votePower: number;
 };
 
 export enum GameStatus {
@@ -103,4 +111,13 @@ export type GameState = {
   isHurricaneActive: boolean;
   isVotingActive: boolean;
   eventLog: EventLogEntry[];
+  voting: Voting[];
 };
+
+export enum Actions {
+  SEARCH_WRECKAGE = "SEARCH_WRECKAGE",
+  FISH = "FISH",
+  COLLECT_WATER = "COLLECT_WATER",
+  COLLECT_WOOD = "COLLECT_WOOD",
+  USE_OBJECT = "USE_OBJECT",
+}

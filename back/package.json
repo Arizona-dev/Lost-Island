@@ -17,6 +17,7 @@
     "express": "^4.19.2",
     "ioredis": "^5.4.1",
     "mongoose": "^8.2.4",
+    "redlock": "^5.0.0-beta.2",
     "socket.io": "^4.7.5",
     "winston": "^3.13.0"
   },

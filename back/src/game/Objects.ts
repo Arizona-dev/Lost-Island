@@ -1,4 +1,21 @@
-export enum Effect {
+import { GameState } from "./Game";
+import {
+  handleFoodEffect,
+  handleHealEffect,
+  handleProtectionEffect,
+  handleSeeCardsEffect,
+  handleShamanKit,
+  handleShootEffect,
+  handleSicknessEffect,
+  handleStealObjectEffect,
+  handleVegetableGrinder,
+  handleVoteModifierEffect,
+  handleWaterEffect,
+  handleWeatherEffect,
+  handleWhetstone,
+} from "./ObjectsEffects";
+
+export enum EffectType {
   "NOTHING" = "nothing",
   "FOOD" = "food",
   "WATER" = "water",
@@ -9,14 +26,22 @@ export enum Effect {
   "SHOOT" = "shoot",
   "HEAL" = "heal",
   "SICKNESS" = "sickness",
-  "SEE_CARDS" = "see_cards",
+  "SEE_OBJECTS" = "see_objects",
+  "WEATHER" = "weather",
 }
+
+export type Effect = {
+  type: EffectType;
+  value?: number;
+};
 
 export type WreckageObject = {
   id: string;
   usage: "unique" | "permanent";
   description: string;
-  effect: Effect;
+  effects: Effect[];
+  image: string;
+  isHidden: boolean;
 };
 
 // Clé de voiture de luxe : Cet objet ne sert à rien, même pas à faire le malin.
@@ -50,7 +75,7 @@ export type WreckageObject = {
 // Chat : En cas de pénurie uniquement, donne 2 rations de nourriture.
 // Taser : Permet de voler une carte à effet permanent qui se trouve devant un autre joueur.
 
-export enum WreckageObjects {
+export enum WreckageObjectList {
   LUXURY_CAR_KEY = "luxury_car_key",
   BOARD_GAME = "board_game",
   OLD_UNDERWEAR = "old_underwear",
@@ -85,341 +110,395 @@ export enum WreckageObjects {
 
 export const allObjects: WreckageObject[] = [
   {
-    id: WreckageObjects.LUXURY_CAR_KEY,
+    id: WreckageObjectList.LUXURY_CAR_KEY,
     usage: "unique",
     description: "Cet objet ne sert à rien, même pas à faire le malin.",
-    effect: Effect.NOTHING,
+    effects: [{ type: EffectType.NOTHING }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.BOARD_GAME,
+    id: WreckageObjectList.BOARD_GAME,
     usage: "unique",
     description:
       "Cet objet (ne sert à rien) est génial (vous allez enfin pouvoir faire passer le temps de façon agréable).",
-    effect: Effect.NOTHING,
+    effects: [{ type: EffectType.NOTHING }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.OLD_UNDERWEAR,
+    id: WreckageObjectList.OLD_UNDERWEAR,
     usage: "unique",
     description:
       "Cet objet ne sert à rien, si ce n'est vous apporter un peu de réconfort.",
-    effect: Effect.NOTHING,
+    effects: [{ type: EffectType.NOTHING }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.TIN_PLATE,
+    id: WreckageObjectList.TIN_PLATE,
     usage: "unique",
     description: "Me protège d'un tir de revolver.",
-    effect: Effect.PROTECTION,
+    effects: [{ type: EffectType.PROTECTION }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.CANNIBAL_BBQ_KIT,
+    id: WreckageObjectList.CANNIBAL_BBQ_KIT,
     usage: "unique",
     description:
       "A la fin d'un tour, ajoute 2 rations de nourriture pour chaque naufragé mort durant le tour.",
-    effect: Effect.FOOD,
+    effects: [{ type: EffectType.FOOD }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.VOODOO_DOLL,
+    id: WreckageObjectList.VOODOO_DOLL,
     usage: "unique",
     description:
       "Permet de ressusciter un naufragé de mon choix au début d'un tour.",
-    effect: Effect.HEAL,
+    effects: [{ type: EffectType.HEAL }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.ANTIVENOM,
+    id: WreckageObjectList.ANTIVENOM,
     usage: "unique",
     description:
       "Soigne une morsure de serpent. Je ne suis pas malade mais je perds le bois.",
-    effect: Effect.HEAL,
+    effects: [{ type: EffectType.HEAL }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.SLEEPING_PILL,
+    id: WreckageObjectList.SLEEPING_PILL,
     usage: "unique",
     description: "Me permet de voler une carte au hasard à 3 naufragés.",
-    effect: Effect.STEAL_OBJECT,
+    effects: [{ type: EffectType.STEAL_OBJECT }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.REVOLVER,
+    id: WreckageObjectList.REVOLVER,
     usage: "permanent",
     description:
       "Permet d'abattre un naufragé de mon choix lorsque j'ai une cartouche. (Usage permanent. Carte récupérée en cas d'élimination de son propriétaire).",
-    effect: Effect.SHOOT,
+    effects: [{ type: EffectType.SHOOT }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.WATER_BOTTLE,
+    id: WreckageObjectList.WATER_BOTTLE,
     usage: "unique",
     description: "Me permet de boire une ration d'eau.",
-    effect: Effect.WATER,
+    effects: [{ type: EffectType.WATER }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.SANDWICH,
+    id: WreckageObjectList.SANDWICH,
     usage: "unique",
     description: "Me permet de manger une ration de nourriture.",
-    effect: Effect.FOOD,
+    effects: [{ type: EffectType.FOOD }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.STALE_WATER,
+    id: WreckageObjectList.STALE_WATER,
     usage: "unique",
     description: "Equivalent à une ration d'eau mais rend malade pour 1 tour.",
-    effect: Effect.SICKNESS,
+    effects: [{ type: EffectType.SICKNESS }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.COCONUT,
+    id: WreckageObjectList.COCONUT,
     usage: "unique",
     description: "Me permet de manger une ration de nourriture.",
-    effect: Effect.FOOD,
+    effects: [{ type: EffectType.FOOD }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.BULLET,
+    id: WreckageObjectList.BULLET,
     usage: "unique",
     description:
       "A utiliser avec le revolver pour abattre un naufragé. (Usage unique).",
-    effect: Effect.SHOOT,
+    effects: [{ type: EffectType.SHOOT }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.SHELL,
+    id: WreckageObjectList.SHELL,
     usage: "unique",
     description:
       "Durant ce tour, je suis le chef et personne ne peut voter contre moi. Cette carte peut être jouée avant ou après un vote.",
-    effect: Effect.VOTE_MODIFIER,
+    effects: [{ type: EffectType.VOTE_MODIFIER }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.FLASHLIGHT,
+    id: WreckageObjectList.FLASHLIGHT,
     usage: "unique",
     description:
       "Permet de regarder les 3 premières cartes Épave du paquet et d'en choisir une. Les autres sont remises dans le paquet. Sans le montrer aux autres joueurs.",
-    effect: Effect.SEE_CARDS,
+    effects: [{ type: EffectType.SEE_OBJECTS }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.TELESCOPE,
+    id: WreckageObjectList.TELESCOPE,
     usage: "unique",
     description:
       "Avec cette longue-vue, je peux voir secrètement les cartes des autres naufragés.",
-    effect: Effect.SEE_CARDS,
+    effects: [{ type: EffectType.SEE_OBJECTS }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.BASKET,
+    id: WreckageObjectList.BASKET,
     usage: "unique",
     description:
       "En cas de pénurie, aucun naufragé ne meurt de faim ou de soif, mais le(s) compteur(s) concerné(s) sont remis à zéro (ce panier ne peut pas être utilisé pour quitter l'île).",
-    effect: Effect.NOTHING,
+    effects: [
+      { type: EffectType.FOOD, value: 2 },
+      { type: EffectType.WATER, value: 2 },
+    ],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.FLASK,
+    id: WreckageObjectList.FLASK,
     usage: "permanent",
     description:
       "Me permet de récupérer 2 fois plus d'eau à chaque fois que je collecte de l'eau. (Usage permanent, carte défaussée en cas d'élimination de son propriétaire).",
-    effect: Effect.WATER,
+    effects: [{ type: EffectType.WATER }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.CRYSTAL_BALL,
+    id: WreckageObjectList.CRYSTAL_BALL,
     usage: "permanent",
     description:
       "Me permet de voter en dernier lors d'un vote. (Usage permanent, carte défaussée en cas d'élmination de son propriétaire).",
-    effect: Effect.VOTE_MODIFIER,
+    effects: [{ type: EffectType.VOTE_MODIFIER }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.DUM_DUM_BULLET,
+    id: WreckageObjectList.DUM_DUM_BULLET,
     usage: "unique",
     description:
       "A utiliser avec le revolver pour abattre un naufragé. Traverse les plaques de tôle et la plaque concave. (Usage unique)",
-    effect: Effect.SHOOT,
+    effects: [{ type: EffectType.SHOOT }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.CONCAVE_PLATE,
+    id: WreckageObjectList.CONCAVE_PLATE,
     usage: "unique",
     description:
       "Si quelqu'un me tire dessus, la balle ricoche sur mon voisin de gauche.",
-    effect: Effect.PROTECTION,
+    effects: [{ type: EffectType.PROTECTION }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.AXE,
+    id: WreckageObjectList.AXE,
     usage: "permanent",
     description:
       "A chaque tour, me permet de récupérer 2 morceaux de bois sans risque si je choisis l'action 'Ramasser du bois'. (Usage permanent, carte défaussée en cas d'élimination de son propriétaire).",
-    effect: Effect.WOOD,
+    effects: [{ type: EffectType.WOOD, value: 2 }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.CLUB,
+    id: WreckageObjectList.CLUB,
     usage: "permanent",
     description:
       "Donne 2 voix lors de chaque vote. (Usage permanent, carte défaussée en cas d'élimination de son propriétaire).",
-    effect: Effect.VOTE_MODIFIER,
+    effects: [{ type: EffectType.VOTE_MODIFIER, value: 2 }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.LOTTERY_TICKET,
+    id: WreckageObjectList.LOTTERY_TICKET,
     usage: "unique",
     description:
       "Cet objet ne sert à rien (mais dire que vous auriez pu vous acheter un bateau avec...).",
-    effect: Effect.NOTHING,
+    effects: [{ type: EffectType.NOTHING }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.VEGETABLE_GRINDER,
+    id: WreckageObjectList.VEGETABLE_GRINDER,
     usage: "unique",
     description:
       "Permet de transformer 2 rations de nourriture en 2 rations d'eau.",
-    effect: Effect.WATER,
+    effects: [{ type: EffectType.WATER, value: 2 }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.SHAMAN_KIT,
+    id: WreckageObjectList.SHAMAN_KIT,
     usage: "unique",
     description:
       "Si l'indicateur de pluie est à zéro pour ce tour, cette carte permet de la passer à 1.",
-    effect: Effect.NOTHING,
+    effects: [{ type: EffectType.WEATHER, value: 1 }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.WHETSTONE,
+    id: WreckageObjectList.WHETSTONE,
     usage: "unique",
     description:
-      "Associée à la hache, me permet de tuer un de mes voisins. La gache est défaussée après cet usage.",
-    effect: Effect.SHOOT,
+      "Associée à la hache, me permet de tuer un de mes voisins. La hache est défaussée après cet usage.",
+    effects: [{ type: EffectType.SHOOT }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.CAT,
+    id: WreckageObjectList.CAT,
     usage: "unique",
     description: "En cas de pénurie uniquement, donne 2 rations de nourriture.",
-    effect: Effect.FOOD,
+    effects: [{ type: EffectType.FOOD, value: 2 }],
+    image: "",
+    isHidden: true,
   },
   {
-    id: WreckageObjects.TASER,
+    id: WreckageObjectList.TASER,
     usage: "unique",
     description:
       "Permet de voler une carte à effet permanent qui se trouve devant un autre joueur.",
-    effect: Effect.STEAL_OBJECT,
+    effects: [{ type: EffectType.STEAL_OBJECT }],
+    image: "",
+    isHidden: true,
   },
 ];
 
-export const discardObjectFromPlayer = (playerId: string, objectId: string) => {
-  // TODO
+// Utility function to discard an object from a player
+export const discardObjectFromPlayer = (
+  gameState: GameState,
+  playerId: string,
+  objectId: string
+): GameState => {
+  const playerIndex = gameState.players.findIndex(
+    player => player.id === playerId
+  );
+  if (playerIndex === -1) {
+    throw new Error("Player not found");
+  }
+
+  const updatedPlayers = gameState.players.map((player, index) => {
+    if (index === playerIndex) {
+      return {
+        ...player,
+        objects: player.objects.filter(obj => obj.id !== objectId),
+      };
+    }
+    return player;
+  });
+
+  return {
+    ...gameState,
+    players: updatedPlayers,
+  };
 };
 
 export const handleUseObject = (
-  io: any,
-  gameId: string,
+  gameState: GameState,
   playerId: string,
-  objectId: WreckageObjects,
-  targetPlayerId?: string
-): void => {
+  objectId?: string,
+  targetedPlayersId?: string[]
+): GameState => {
   console.log(`Player ${playerId} used object ${objectId}`);
-  switch (objectId) {
-    // Clé de voiture de luxe : Cet objet ne sert à rien, même pas à faire le malin.
-    case "luxury_car_key":
-      // TODO
+
+  // Find the object being used
+  const object = allObjects.find(obj => obj.id === objectId);
+  if (!object) {
+    throw new Error("Object not found");
+  }
+
+  // Route to the specific object handler if available
+  switch (object.id) {
+    case WreckageObjectList.VEGETABLE_GRINDER:
+      gameState = handleVegetableGrinder(gameState, playerId);
       break;
-    // Jeu de société puissance 4 : Cet objet (ne sert à rien) est génial (vous allez enfin pouvoir faire passer le temps de façon agréable).
-    case "board_game":
-      // TODO
+    case WreckageObjectList.SHAMAN_KIT:
+      gameState = handleShamanKit(gameState, playerId);
       break;
-    // Vieux slip : Cet objet ne sert à rien, si ce n'est vous apporter un peu de réconfort.
-    case "old_underwear":
-      // TODO
+    case WreckageObjectList.WHETSTONE:
+      gameState = handleWhetstone(gameState, playerId);
       break;
-    // Plaque de tôle : Me protège d'un tir de revolver.
-    case "tin_plate":
-      // TODO
-      break;
-    // Kit BBQ Cannibale : A la fin d'un tour, ajoute 2 rations de nourriture pour chaque naufragé mort durant le tour.
-    case "cannibal_bbq_kit":
-      // TODO
-      break;
-    // Poupée vaudou : Permet de ressusciter un naufragé de mon choix au début d'un tour.
-    case "voodoo_doll":
-      // TODO
-      break;
-    // Anti-venin : Soigne une morsure de serpent. Je ne suis pas malade mais je perds le bois.
-    case "antivenom":
-      // TODO
-      break;
-    // Somnifère : Me permet de voler une carte au hasard à 3 naufragés.
-    case "sleeping_pill":
-      // TODO
-      break;
-    // Revolver : Permet d'abattre un naufragé de mon choix lorsque j'ai une cartouche. (Usage permanent. Carte récupérée en cas d'élimination de son propriétaire).
-    case "revolver":
-      // TODO
-      break;
-    // Bouteille d'eau : Me permet de boire une ration d'eau.
-    case "water_bottle":
-      // TODO
-      break;
-    // Sandwich : Me permet de manger une ration de nourriture.
-    case "sandwich":
-      // TODO
-      break;
-    // Eau croupie : Equivalent à une ration d'eau mais rend malade pour 1 tour.
-    case "stale_water":
-      // TODO
-      break;
-    // Noix de coco : Me permet de manger une ration de nourriture.
-    case "coconut":
-      // TODO
-      break;
-    // Cartouche : A utiliser avec le revolver pour abattre un naufragé. (Usage unique).
-    case "bullet":
-      // TODO
-      break;
-    // Conque : Durant ce tour, je suis le chef et personne ne peut voter contre moi. Cette carte peut être jouée avant ou après un vote.
-    case "shell":
-      // TODO
-      break;
-    // Lampe torche : Permet de regarder les 3 premières cartes Épave du paquet et d'en choisir une. Les autres sont remises dans le paquet. Sans le montrer aux autres joueurs.
-    case "flashlight":
-      // TODO
-      break;
-    // Longue-vue : Avec cette longue-vue, je peux voir secrètement les cartes des autres naufragés.
-    case "telescope":
-      // TODO
-      break;
-    // Panier garni : En cas de pénurie, aucun naufragé ne meurt de faim ou de soif, mais le(s) compteur(s) concerné(s) sont remis à zéro (ce panier ne peut pas être utilisé pour quitter l'île).
-    case "basket":
-      // TODO
-      break;
-    // Gourde : Me permet de récupérer 2 fois plus d'eau à chaque fois que je collecte de l'eau. (Usage permanent, carte défaussée en cas d'élimination de son propriétaire).
-    case "flask":
-      // TODO
-      break;
-    // Boule de cristal : Me permet de voter en dernier lors d'un vote. (Usage permanent, carte défaussée en cas d'élmination de son propriétaire).
-    case "crystal_ball":
-      // TODO
-      break;
-    // Balle dum-dum : A utiliser avec le revolver pour abattre un naufragé. Traverse les plaques de tôle et la plaque concave. (Usage unique)
-    case "dum_dum_bullet":
-      // TODO
-      break;
-    // Plaque concave : Si quelqu'un me tire dessus, la balle ricoche sur mon voisin de gauche.
-    case "concave_plate":
-      // TODO
-      break;
-    // Hache : A chaque tour, me permet de récupérer 2 morceaux de bois sans risque si je choisis l'action "Ramasser du bois". (Usage permanent, carte défaussée en cas d'élimination de son propriétaire).
-    case "axe":
-      // TODO
-      break;
-    // Gourdin : Donne 2 voix lors de chaque vote. (Usage permanent, carte défaussée en cas d'élimination de son propriétaire).
-    case "club":
-      // TODO
-      break;
-    // Ticket de loterie gagnant : Cet objet ne sert à rien (mais dire que vous auriez pu vous acheter un bateau avec...).
-    case "lottery_ticket":
-      // TODO
-      break;
-    // Moulin à légumes : Permet de transformer 2 rations de nourriture en 2 rations d'eau.
-    case "vegetable_grinder":
-      // TODO
-      break;
-    // Kit Chaman : Si la météo est à zéro pour ce tour, cette carte permet de la passer à 1.
-    case "shaman_kit":
-      // TODO
-      break;
-    // Pierre à aiguiser : Associée à la hache, me permet de tuer un de mes voisins. La gache est défaussée après cet usage.
-    case "whetstone":
-      // TODO
-      break;
-    // Chat : En cas de pénurie uniquement, donne 2 rations de nourriture.
-    case "cat":
-      // TODO
-      break;
-    // Taser : Permet de voler une carte à effet permanent qui se trouve devant un autre joueur.
-    case "taser":
-      // TODO
+    default:
+      // Process generic effects for objects without specific handlers
+      object.effects.forEach(effect => {
+        switch (effect.type) {
+          case EffectType.NOTHING:
+            // No effect
+            console.log(`Object ${objectId} has no effect.`);
+            break;
+          case EffectType.FOOD:
+            gameState = handleFoodEffect(gameState, effect.value);
+            break;
+          case EffectType.WATER:
+            gameState = handleWaterEffect(gameState, effect.value);
+            break;
+          case EffectType.PROTECTION:
+            gameState = handleProtectionEffect(gameState, playerId);
+            break;
+          case EffectType.VOTE_MODIFIER:
+            gameState = handleVoteModifierEffect(
+              gameState,
+              playerId,
+              effect.value
+            );
+            break;
+          case EffectType.STEAL_OBJECT:
+            if (!targetedPlayersId?.length) {
+              throw new Error(
+                "Target player ID is required for stealing objects."
+              );
+            }
+            gameState = handleStealObjectEffect(
+              gameState,
+              playerId,
+              targetedPlayersId
+            );
+            break;
+          case EffectType.SHOOT:
+            if (!targetedPlayersId?.length) {
+              throw new Error("Target player ID is required for shooting.");
+            }
+            gameState = handleShootEffect(
+              gameState,
+              playerId,
+              targetedPlayersId
+            );
+            break;
+          case EffectType.HEAL:
+            gameState = handleHealEffect(gameState, playerId);
+            break;
+          case EffectType.SICKNESS:
+            gameState = handleSicknessEffect(gameState, playerId);
+            break;
+          case EffectType.SEE_OBJECTS:
+            gameState = handleSeeCardsEffect(gameState, playerId);
+            break;
+          case EffectType.WEATHER:
+            gameState = handleWeatherEffect(gameState, effect.value);
+            break;
+          default:
+            throw new Error("Effect not handled");
+        }
+      });
       break;
   }
+
+  // Discard the object if it is a unique-use object
+  if (object.usage === "unique") {
+    gameState = discardObjectFromPlayer(gameState, playerId, object.id);
+  }
+
+  return gameState;
 };

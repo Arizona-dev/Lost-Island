@@ -7,7 +7,6 @@ const PlayerSchema = new Schema<IPlayer>(
       id: String,
       name: String,
     },
-    objects: [String],
     status: {
       type: String,
       enum: ["alive", "poisoned", "sick", "dead", "out"],

@@ -122,7 +122,7 @@
 // Dès que la carte Météo Ouragan (sablier barré) est retournée, le radeau doit quitter l’île à la fin du tour, sinon tous les joueurs perdent ! Pour pouvoir embarquer il faut :
 // • que les rations d’Eau et de Nourriture aient été distribuées.
 // • avoir autant de cartes Radeau sur le plateau que de joueurs survivants. Sinon il faut procéder à un vote pour en sacrifier.
-// • enfin iI doit y avoir une ration d’eau et de nourriture supplémentaire par joueur embarqué (s’il n’y en a pas assez, procéder comme d’habitude à un vote pour désigner les joueurs sacrifiés).
+// • enfin il doit y avoir une ration d’eau et de nourriture supplémentaire par joueur embarqué (s’il n’y en a pas assez, procéder comme d’habitude à un vote pour désigner les joueurs sacrifiés).
 // Attention : il est interdit d’utiliser la carte Panier garni comme ration supplémentaire pour embarquer.
 // Les joueurs éliminés par ces votes doivent donner les cartes qu’ils ont en main à leurs voisins, comme pour les autres votes.
 // Les joueurs qui parviennent à embarquer sur le radeau gagnent la partie.
@@ -136,13 +136,13 @@
 // 2. Tirer la carte Météo
 // 3. Action des joueurs
 // Chaque joueur choisit d’effectuer l’une de ces 4 actions :
-// Pêcher du poisson :
-// Piocher une boule dans le sac et déplacer le pion Nourriture du nombre de poisson(s) indiqué (1 à 3).
-// Collecter de l’eau :
-// Déplacer le pion d’eau sur le compteur de vivre du nombre de cases indiqué sur la carte Météo du tour (0 à 3).
-// Collecter du bois et construire le radeau :
-// Avancer le disque Bois d’une étape puis décider de piocher une ou plusieurs boules supplémentaires dans le sac. Si la boule noire n’apparait pas, avancer d’autant d’étapes que de boules blanches piochées. Si le disque atteint l’étape 6, ajouter une carte Place de radeau sur le plateau.
-// Fouiller l’épave Piochez une carte Épave et ajoutez-la à votre main.
+//   Pêcher du poisson :
+//     Piocher une boule dans le sac et déplacer le pion Nourriture du nombre de poisson(s) indiqué (1 à 3).
+//   Collecter de l’eau :
+//     Déplacer le pion d’eau sur le compteur de vivre du nombre de cases indiqué sur la carte Météo du tour (0 à 3).
+//   Collecter du bois et construire le radeau :
+//     Avancer le disque Bois d’une étape puis décider de piocher une ou plusieurs boules supplémentaires dans le sac. Si la boule noire n’apparait pas, avancer d’autant d’étapes que de boules blanches piochées. Si le disque atteint l’étape 6, ajouter une carte Place de radeau sur le plateau.
+//   Fouiller l’épave Piochez une carte Épave et ajoutez-la à votre main.
 
 // 4. Survie des naufragés
 // A. Décompte Eau
@@ -177,8 +177,6 @@
 // Le premier joueur est choisi au hasard et reçoit la carte Premier joueur.
 // Le jeu est prêt à commencer.
 
-import { Server } from "socket.io";
-import { Express } from "express";
 import { GameEvents } from "../game/Events";
 import {
   GameStatus,
@@ -189,202 +187,292 @@ import {
   setGameState,
   startGame,
 } from "../game/Game";
-import { handlePlayerAction } from "../game/Player";
-import { joinGameService } from "../services/gameService";
+import {
+  PlayerState,
+  handlePlayerAction,
+  handlePlayerVote,
+} from "../game/Player";
+import { leaveGameService } from "../services/gameService";
+import { Game } from "../models/gameModel";
+import { getIO } from "../server";
+import { IPlayer } from "../types/types";
+import { handleGameLoop } from "../game/GameLoop";
 
-export const initializeWebSocket = (app: Express, server: any) => {
-  const io = new Server(server, {
-    cors: {
-      origin: "*",
-    },
-  });
+export const initializeWebSocket = () => {
+  try {
+    const io = getIO();
 
-  io.on("connection", socket => {
-    console.log(`[WS]: Connecté: ${socket.id}`);
+    const joiningPlayers = new Set();
 
-    socket.on("getOnlinePlayers", () => {
-      const onlinePlayers = io.engine.clientsCount;
-      console.log(`Nombre de joueurs en ligne: ${onlinePlayers}`);
-      io.emit("onlinePlayers", onlinePlayers);
-    });
+    io.on("connection", socket => {
+      console.log(`[WS]: Connecté: ${socket.id}`);
 
-    socket.on("FETCH_GAME_STATE", async ({ gameId }) => {
-      const gameState = await getGameState(gameId);
-      if (!gameState) {
-        return io.to(socket.id).emit("error", {
-          message: "Impossible de trouver la partie",
-        });
-      }
-      console.log(`[WS]: Envoi de l'état du jeu ${gameId}`);
-      io.to(socket.id).emit(GameEvents.UPDATE_GAME_STATE, gameState);
-    });
+      socket.on("getOnlinePlayers", () => {
+        const onlinePlayers = io.engine.clientsCount;
+        io.emit("onlinePlayers", onlinePlayers);
+      });
 
-    socket.on(
-      GameEvents.JOIN_GAME,
-      async ({ gameId, playerId, playerName }) => {
-        console.log(`[WS]: ${playerName} a rejoint le jeu ${gameId}`);
-        socket.join(gameId);
-
-        let gameState = await getGameState(gameId);
-
-        if (!gameState) {
-          gameState = await createGameState(gameId);
-        }
-        if (!isPlayerInGame(gameState, playerId)) {
-          if (gameState.status === GameStatus.STARTED) {
-            return io.to(socket.id).emit("error", {
-              message:
-                "Impossible de rejoindre le jeu: la partie a déjà commencé",
-            });
-          }
-          gameState = await joinGame(gameId, {
-            id: playerId,
-            name: playerName,
-            status: "normal",
-            voteCount: 1,
-            objects: [],
-          });
-        }
-        await joinGameService(gameId, {
-          id: playerId,
-          name: playerName,
-          status: "normal",
-          voteCount: 1,
-          objects: [],
-        });
-        io.to(gameId).emit(GameEvents.UPDATE_GAME_STATE, gameState);
-        io.to(gameId).emit(GameEvents.PLAYER_JOINED, {
-          playerId,
-          playerName,
-        });
-      }
-    );
-
-    socket.on(GameEvents.LEAVE_GAME, async ({ gameId, playerId }) => {
-      console.log(`[WS]: ${playerId} a quitté le jeu ${gameId}`);
-      const gameState = await getGameState(gameId);
-      if (!gameState) {
-        return io.to(socket.id).emit("error", {
-          message: "Impossible de trouver la partie",
-        });
-      }
-      if (gameState.status === GameStatus.STARTED) {
-        return io.to(socket.id).emit("error", {
-          message: "Impossible de quitter le jeu: la partie a déjà commencé",
-        });
-      }
-      if (isPlayerInGame(gameState, playerId)) {
-        gameState.players = gameState.players.filter(
-          (p: any) => p.id !== playerId
-        );
-        await setGameState(gameId, gameState);
-        io.to(gameId).emit(GameEvents.UPDATE_GAME_STATE, gameState);
-        io.to(gameId).emit(GameEvents.PLAYER_LEFT, { playerId });
-      }
-    });
-
-    socket.on("RESET_GAME", async ({ gameId }) => {
-      console.log(`[WS]: Réinitialisation du jeu ${gameId}`);
-      const gameState = await createGameState(gameId);
-      await setGameState(gameId, gameState);
-      io.to(gameId).emit(GameEvents.UPDATE_GAME_STATE, gameState);
-    });
-
-    socket.on(GameEvents.GAME_STARTED, async ({ gameId }) => {
-      let gameState = await getGameState(gameId);
-      if (!gameState) {
-        return io.to(socket.id).emit("error", {
-          message: "Impossible de démarrer la partie: la partie existe déjà",
-        });
-      }
-      gameState = await startGame(gameState);
-      console.log(`[WS]: Lancement de la partie ${gameId}`);
-      io.to(gameId).emit(GameEvents.GAME_STARTED, gameState);
-    });
-
-    socket.on(
-      GameEvents.PLAYER_ACTION,
-      async ({ gameId, playerId, action }) => {
+      socket.on("FETCH_GAME_STATE", async ({ gameId }) => {
         const gameState = await getGameState(gameId);
+
         if (!gameState) {
           return io.to(socket.id).emit("error", {
             message: "Impossible de trouver la partie",
           });
         }
 
-        if (gameState.playerIdTurn !== playerId) {
-          return io.to(socket.id).emit("error", {
-            message: "Ce n'est pas votre tour",
+        io.to(socket.id).emit(GameEvents.UPDATE_GAME_STATE, gameState);
+      });
+
+      socket.on(
+        GameEvents.JOIN_GAME,
+        async ({ gameId, playerId, playerName }) => {
+          if (joiningPlayers.has(playerId)) {
+            return;
+          }
+
+          joiningPlayers.add(playerId);
+
+          try {
+            console.log(`[WS]: ${playerName} a rejoint le jeu ${gameId}`);
+            socket.join(gameId);
+
+            let gameState = await getGameState(gameId);
+
+            const gameSettings = await Game.findById(gameId);
+
+            if (!gameState) {
+              gameState = await createGameState(gameId);
+              await startGame(gameState);
+            }
+
+            // If the player is not already in the game, and the game is still in Created status (not started) then add the player to the game
+            if (
+              !gameSettings?.players?.some((player: IPlayer) => {
+                return player.user.id === playerId;
+              })
+            ) {
+              if (gameState.status !== GameStatus.CREATED) {
+                joiningPlayers.delete(playerId);
+                return io.to(socket.id).emit("error", {
+                  message:
+                    "Impossible de rejoindre le jeu: la partie a déjà commencé",
+                });
+              }
+
+              gameState = await joinGame(gameId, {
+                id: playerId,
+                name: playerName,
+                status: PlayerState.NORMAL,
+                voteCount: 1,
+                objects: [],
+              });
+
+              // Add the player to the socket gameState if he is not already in the game
+              if (!isPlayerInGame(gameState, playerId)) {
+                console.log(
+                  `[WS]: Ajout du joueur ${playerName} au jeu ${gameId}`
+                );
+
+                io.to(gameId).emit(GameEvents.PLAYER_JOINED, {
+                  playerId,
+                  playerName,
+                });
+              }
+            }
+          } catch (error) {
+            console.error(error);
+            io.to(socket.id).emit("error", {
+              message: "Impossible de rejoindre le jeu",
+            });
+          } finally {
+            joiningPlayers.delete(playerId);
+          }
+        }
+      );
+
+      socket.on(GameEvents.LEAVE_GAME, async ({ gameId, playerId }) => {
+        try {
+          const gameState = await getGameState(gameId);
+          if (!gameState) {
+            return io.to(socket.id).emit("error", {
+              message: "Impossible de trouver la partie",
+            });
+          }
+
+          if (gameState.status === GameStatus.STARTED) {
+            return io.to(socket.id).emit("error", {
+              message:
+                "Impossible de quitter le jeu: la partie a déjà commencé",
+            });
+          }
+
+          if (isPlayerInGame(gameState, playerId)) {
+            gameState.players = gameState.players.filter(
+              (p: any) => p.id !== playerId
+            );
+            await setGameState(gameId, gameState);
+            io.to(gameId).emit(GameEvents.UPDATE_GAME_STATE, gameState);
+            io.to(gameId).emit(GameEvents.PLAYER_LEFT, { playerId });
+
+            await leaveGameService(gameId, playerId);
+            console.log(`[WS]: ${playerId} a quitté le jeu ${gameId}`);
+          } else {
+            console.log(`[WS]: ${playerId} n'est pas dans le jeu ${gameId}`);
+          }
+        } catch (error) {
+          console.error(error);
+          io.to(socket.id).emit("error", {
+            message: "Impossible de quitter le jeu",
           });
         }
+      });
 
-        // Gérer l'action du joueur
-        console.log(
-          `[WS]: Action reçue de ${playerId} dans le jeu ${gameId}: `,
-          action
-        );
-        await handlePlayerAction(io, gameId, playerId, action);
+      socket.on("RESET_GAME", async ({ gameId }) => {
+        console.log(`[WS]: Réinitialisation du jeu ${gameId}`);
+        const gameState = await getGameState(gameId);
+        if (!gameState) {
+          return io.to(socket.id).emit("error", {
+            message: "Impossible de réinitialiser le jeu",
+          });
+        }
+        await startGame(gameState);
+      });
 
-        // Passer au joueur suivant
-        const playerIndex = gameState.players.findIndex(
-          (p: any) => p.id === playerId
-        );
-        const nextPlayerIndex = (playerIndex + 1) % gameState.players.length;
-        gameState.playerIdTurn = gameState.players[nextPlayerIndex].id;
-        await setGameState(gameId, gameState);
+      socket.on(GameEvents.GAME_STARTED, async ({ gameId }) => {
+        try {
+          let gameState = await getGameState(gameId);
+          if (!gameState) {
+            return io.to(socket.id).emit("error", {
+              message:
+                "Impossible de démarrer la partie: la partie existe déjà",
+            });
+          }
+          gameState = await startGame(gameState);
+          console.log(`[WS]: Lancement de la partie ${gameId}`);
+          io.to(gameId).emit(GameEvents.GAME_STARTED, gameState);
+        } catch (error) {
+          console.error(error);
+          io.to(socket.id).emit("error", {
+            message: "Impossible de démarrer la partie",
+          });
+        }
+      });
 
-        // Notifier le joueur suivant
-        io.to(gameState.playerIdTurn).emit(GameEvents.YOUR_TURN);
-        io.to(gameId).emit(GameEvents.ACTION_PROCESSED, { playerId, action });
-      }
-    );
+      socket.on(
+        GameEvents.PLAYER_ACTION,
+        async ({ gameId, playerId, action_type, data }) => {
+          try {
+            let gameState = await getGameState(gameId);
 
-    socket.on(GameEvents.VOTE, async ({ gameId, playerId, targetPlayerId }) => {
-      const gameState = await getGameState(gameId);
-      if (!gameState) {
-        return io.to(socket.id).emit("error", {
-          message: "Impossible de trouver la partie",
-        });
-      }
+            if (!gameState) {
+              return io.to(socket.id).emit("error", {
+                message: "Partie introuvable",
+              });
+            }
 
-      if (!gameState.isVotingActive) {
-        return io.to(socket.id).emit("error", {
-          message: "Impossible de voter: pas de vote en cours",
-        });
-      }
+            console.log(
+              `[WS]: Action reçue de ${playerId} dans le jeu ${gameId}: `,
+              action_type
+            );
 
-      if (!isPlayerInGame(gameState, targetPlayerId)) {
-        return io.to(socket.id).emit("error", {
-          message: "Impossible de voter pour un joueur inexistant",
-        });
-      }
+            // Determine if the action is part of the player's turn or a reaction
+            const isPlayerTurn = gameState.playerIdTurn === playerId;
+            const isVotingActive = gameState.isVotingActive;
 
-      const player = gameState.players.find((p: any) => p.id === playerId);
-      if (!player) {
-        return io.to(socket.id).emit("error", {
-          message: "Impossible de trouver le joueur",
-        });
-      }
+            // Handle player action
+            gameState = await handlePlayerAction(
+              io,
+              gameId,
+              playerId,
+              action_type,
+              {
+                objectId: data?.objectId,
+                targetedPlayersId: data?.targetedPlayersId,
+                woodToCollect: data?.woodToCollect,
+              }
+            );
 
-      if ((player.voteCount = 0)) {
-        return io.to(socket.id).emit("error", {
-          message: "Impossible de voter: vous avez déjà voté",
-        });
-      }
+            // If the action was taken during the player's turn, run the game loop
+            if (isPlayerTurn && !isVotingActive) {
+              gameState = handleGameLoop(gameState);
+            }
 
-      player.voteCount = 0;
-      await setGameState(gameId, gameState);
+            await setGameState(gameId, gameState);
 
-      io.to(gameId).emit(GameEvents.VOTE, { playerId, targetPlayerId });
+            // Notify the next player if it was the current player's turn
+            if (isPlayerTurn) {
+              io.to(gameState.playerIdTurn).emit(GameEvents.YOUR_TURN);
+            }
+
+            // Broadcast the processed action to all players
+            io.to(gameId).emit(GameEvents.ACTION_PROCESSED, {
+              playerId,
+              action_type,
+            });
+          } catch (error) {
+            console.error(error);
+            io.to(socket.id).emit("error", {
+              message: "Impossible de traiter l'action",
+            });
+          }
+        }
+      );
+
+      socket.on(
+        GameEvents.VOTE,
+        async ({ gameId, playerId, targetPlayerId }) => {
+          try {
+            let gameState = await getGameState(gameId);
+            if (!gameState) {
+              return io.to(socket.id).emit("error", {
+                message: "Impossible de trouver la partie",
+              });
+            }
+
+            if (!gameState.isVotingActive) {
+              return io.to(socket.id).emit("error", {
+                message: "Impossible de voter: pas de vote en cours",
+              });
+            }
+
+            if (!isPlayerInGame(gameState, targetPlayerId)) {
+              return io.to(socket.id).emit("error", {
+                message: "Impossible de voter pour un joueur inexistant",
+              });
+            }
+
+            // check if the player has already voted
+            if (gameState.voting?.some(v => v.playerId === playerId)) {
+              return io.to(socket.id).emit("error", {
+                message: "Vous avez déjà voté",
+              });
+            }
+
+            gameState = handlePlayerVote(gameState, playerId, targetPlayerId);
+
+            await setGameState(gameId, gameState);
+
+            io.to(gameId).emit(GameEvents.VOTE, { playerId, targetPlayerId });
+          } catch (error) {
+            console.error(error);
+            io.to(socket.id).emit("error", {
+              message: "Impossible de voter",
+            });
+          }
+        }
+      );
+
+      // Gestion de la déconnexion d'un client (joueur)
+      socket.on("disconnect", () => {
+        console.log(`[WS]: Client déconnecté: ${socket.id}`);
+        const onlinePlayers = io.engine.clientsCount;
+        io.emit("onlinePlayers", onlinePlayers);
+      });
     });
 
-    // Gestion de la déconnexion d'un client (joueur)
-    socket.on("disconnect", () => {
-      console.log(`Client déconnecté: ${socket.id}`);
-      const onlinePlayers = io.engine.clientsCount;
-      io.emit("onlinePlayers", onlinePlayers);
-    });
-  });
-
-  return io;
+    return io;
+  } catch (error) {
+    console.error(error);
+  }
 };

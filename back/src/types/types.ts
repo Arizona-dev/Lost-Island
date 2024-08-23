@@ -2,7 +2,6 @@ import { Document } from "mongoose";
 
 export interface IPlayer {
   user: IUser;
-  objects?: string[];
   status: "alive" | "poisoned" | "sick" | "dead" | "out";
 }
 
@@ -31,7 +30,7 @@ export interface IGame extends Document {
   status?: "created" | "started" | "finished";
   difficulty: "normal" | "extreme";
   gameLength: "normal" | "extended";
-  players: Partial<IPlayer>[];
+  players: IPlayer[];
   gameInfo?: IGameInfo;
 }
 
