@@ -1,6 +1,6 @@
 import axios from "axios";
 import config from "../config";
-import { GameSettings, IUser } from "../types";
+import { Game, IUser } from "../types";
 
 const API_URL = config.api.url + "/api/games";
 
@@ -10,6 +10,7 @@ export const createGame = async (partyDetails: {
   maxPlayers: number;
   difficulty: "normal" | "extreme";
   gameLength: "normal" | "extended";
+  voteDuration?: number;
   password?: string;
 }) => {
   try {
@@ -64,7 +65,7 @@ export const getGames = async () => {
 export const getGame = async (
   gameCode: string,
   password?: string
-): Promise<GameSettings> => {
+): Promise<Game> => {
   try {
     if (!password) {
       const { data } = await axios.get(`${API_URL}/${gameCode}`);
@@ -88,4 +89,28 @@ export const startGame = async (partyId: string) => {
   }
 };
 
-export default { createGame, joinGame, getGames, startGame };
+// Mettre à jour voteDuration d'une partie
+export const updateVoteDuration = async (partyId: string, voteDuration: number) => {
+  try {
+    const { data } = await axios.patch(`${API_URL}/${partyId}/voteDuration`, {
+      voteDuration,
+    });
+    return data;
+  } catch (error) {
+    console.error("Erreur lors de la mise à jour de voteDuration", error);
+    throw error;
+  }
+};
+
+// Réinitialiser une partie terminée
+export const resetGame = async (partyId: string) => {
+  try {
+    const { data } = await axios.post(`${API_URL}/${partyId}/reset`);
+    return data;
+  } catch (error) {
+    console.error("Erreur lors de la réinitialisation de la partie", error);
+    throw error;
+  }
+};
+
+export default { createGame, joinGame, getGames, startGame, updateVoteDuration, resetGame };

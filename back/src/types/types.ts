@@ -30,6 +30,7 @@ export interface IGame extends Document {
   status?: "created" | "started" | "finished";
   difficulty: "normal" | "extreme";
   gameLength: "normal" | "extended";
+  voteDuration?: number; // Durée du vote en secondes (défaut: 30)
   players: IPlayer[];
   gameInfo?: IGameInfo;
 }

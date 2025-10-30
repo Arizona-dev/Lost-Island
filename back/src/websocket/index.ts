@@ -184,31 +184,84 @@ import {
   getGameState,
   isPlayerInGame,
   joinGame,
+  resetGameToLobby,
   setGameState,
   startGame,
+  syncPlayersFromDatabase,
+  deduplicatePlayers,
 } from "../game/Game";
 import {
   PlayerState,
+  PlayerAction,
   handlePlayerAction,
   handlePlayerVote,
+  finalizeVote,
 } from "../game/Player";
-import { leaveGameService } from "../services/gameService";
+import { leaveGameService, joinGameService, resetGameToLobbyService } from "../services/gameService";
 import { Game } from "../models/gameModel";
 import { getIO } from "../server";
 import { IPlayer } from "../types/types";
 import { handleGameLoop } from "../game/GameLoop";
+import logger from "../utils/logger";
+import { Redis } from "ioredis";
+
+const redis = new Redis();
 
 export const initializeWebSocket = () => {
   try {
     const io = getIO();
 
     const joiningPlayers = new Set();
+    // Map to track socket.id -> playerId
+    const socketToPlayerId = new Map<string, string>();
+    // Map to track how many sockets each playerId has
+    const playerIdToSocketCount = new Map<string, number>();
+
+    // Helper function to get unique online players count
+    const getUniqueOnlinePlayersCount = (): number => {
+      return playerIdToSocketCount.size;
+    };
+
+    // Timer to check for expired votes every second
+    setInterval(async () => {
+      try {
+        // Get all active games from Redis (we'll need to track active games)
+        // For now, we'll check games that have active votes
+        // This is a simplified approach - in production you might want to track active games differently
+        const allGameKeys = await redis.keys("game:*");
+        
+        for (const key of allGameKeys) {
+          const gameId = key.replace("game:", "");
+          const gameState = await getGameState(gameId);
+          
+          if (gameState && gameState.isVotingActive && gameState.voteStartTime && gameState.voteDuration) {
+            const elapsed = (Date.now() - gameState.voteStartTime) / 1000; // seconds
+            if (elapsed >= gameState.voteDuration) {
+              // Timer expired - finalize the vote
+              logger.info(`[WS]: Timer expired for vote in game ${gameId}`);
+              const finalizedState = finalizeVote(gameState);
+              await setGameState(gameId, finalizedState);
+              
+              // Check if game ended
+              if (finalizedState.status === "ended") {
+                io.to(gameId).emit(GameEvents.GAME_ENDED, finalizedState);
+              } else {
+                io.to(gameId).emit(GameEvents.UPDATE_GAME_STATE, finalizedState);
+              }
+            }
+          }
+        }
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : "Unknown error";
+        logger.error("[WS]: Error in vote timer check", errorMessage);
+      }
+    }, 1000); // Check every second
 
     io.on("connection", socket => {
-      console.log(`[WS]: Connecté: ${socket.id}`);
+      logger.info(`[WS]: Connecté: ${socket.id}`);
 
       socket.on("getOnlinePlayers", () => {
-        const onlinePlayers = io.engine.clientsCount;
+        const onlinePlayers = getUniqueOnlinePlayersCount();
         io.emit("onlinePlayers", onlinePlayers);
       });
 
@@ -216,9 +269,10 @@ export const initializeWebSocket = () => {
         const gameState = await getGameState(gameId);
 
         if (!gameState) {
-          return io.to(socket.id).emit("error", {
+          io.to(socket.id).emit("error", {
             message: "Impossible de trouver la partie",
           });
+          return;
         }
 
         io.to(socket.id).emit(GameEvents.UPDATE_GAME_STATE, gameState);
@@ -234,7 +288,7 @@ export const initializeWebSocket = () => {
           joiningPlayers.add(playerId);
 
           try {
-            console.log(`[WS]: ${playerName} a rejoint le jeu ${gameId}`);
+            logger.info(`[WS]: ${playerName} a rejoint le jeu ${gameId}`);
             socket.join(gameId);
 
             let gameState = await getGameState(gameId);
@@ -242,25 +296,45 @@ export const initializeWebSocket = () => {
             const gameSettings = await Game.findById(gameId);
 
             if (!gameState) {
+              // Create gameState first
               gameState = await createGameState(gameId);
-              await startGame(gameState);
+              
+              // Sync players from database if available
+              if (gameSettings?.players && gameSettings.players.length > 0) {
+                gameState = syncPlayersFromDatabase(gameState, gameSettings.players);
+                await setGameState(gameId, gameState);
+              }
+            } else {
+              // Sync players from database to ensure names are up to date
+              if (gameSettings?.players && gameSettings.players.length > 0) {
+                gameState = syncPlayersFromDatabase(gameState, gameSettings.players);
+                // Deduplicate players before saving
+                gameState = deduplicatePlayers(gameState);
+                await setGameState(gameId, gameState);
+              }
             }
 
-            // If the player is not already in the game, and the game is still in Created status (not started) then add the player to the game
-            if (
-              !gameSettings?.players?.some((player: IPlayer) => {
-                return player.user.id === playerId;
-              })
-            ) {
-              if (gameState.status !== GameStatus.CREATED) {
+            // Check if player is in database
+            const isPlayerInDatabase = gameSettings?.players?.some(
+              (player: IPlayer) => player.user.id === playerId
+            );
+
+            // Check if player is in gameState
+            const isPlayerInGameState = isPlayerInGame(gameState, playerId);
+
+            // If player is not in database, add them to database first
+            if (!isPlayerInDatabase) {
+              if (gameState.status !== GameStatus.CREATED && gameState.status !== GameStatus.ENDED) {
                 joiningPlayers.delete(playerId);
-                return io.to(socket.id).emit("error", {
+                io.to(socket.id).emit("error", {
                   message:
                     "Impossible de rejoindre le jeu: la partie a déjà commencé",
                 });
+                return;
               }
 
-              gameState = await joinGame(gameId, {
+              // Add player to database via service
+              await joinGameService(gameId, {
                 id: playerId,
                 name: playerName,
                 status: PlayerState.NORMAL,
@@ -268,20 +342,66 @@ export const initializeWebSocket = () => {
                 objects: [],
               });
 
-              // Add the player to the socket gameState if he is not already in the game
-              if (!isPlayerInGame(gameState, playerId)) {
-                console.log(
-                  `[WS]: Ajout du joueur ${playerName} au jeu ${gameId}`
-                );
-
-                io.to(gameId).emit(GameEvents.PLAYER_JOINED, {
-                  playerId,
-                  playerName,
-                });
+              // Refresh gameSettings after adding player
+              const updatedGameSettings = await Game.findById(gameId);
+              if (updatedGameSettings?.players) {
+                gameState = syncPlayersFromDatabase(gameState, updatedGameSettings.players);
               }
             }
-          } catch (error) {
-            console.error(error);
+
+            // If player is not in gameState, add them to gameState
+            // This handles cases where player is in database but not in gameState (e.g., lobby owner opening new tab)
+            // Also allow for finished games so players can view final statistics
+            if (!isPlayerInGameState && (gameState.status === GameStatus.CREATED || gameState.status === GameStatus.ENDED)) {
+              // Get player name from database if available
+              const dbPlayer = gameSettings?.players?.find(
+                (p: IPlayer) => p.user.id === playerId
+              );
+              const finalPlayerName = dbPlayer?.user?.name || playerName;
+
+              gameState = await joinGame(gameId, {
+                id: playerId,
+                name: finalPlayerName,
+                status: PlayerState.NORMAL,
+                voteCount: 1,
+                objects: [],
+              });
+
+              logger.info(
+                `[WS]: Ajout du joueur ${finalPlayerName} au jeu ${gameId}`
+              );
+
+              io.to(gameId).emit(GameEvents.PLAYER_JOINED, {
+                playerId,
+                playerName: finalPlayerName,
+              });
+            }
+
+            // Deduplicate players before sending
+            gameState = deduplicatePlayers(gameState);
+            await setGameState(gameId, gameState);
+
+            // Track player connection for unique count
+            if (playerId) {
+              socketToPlayerId.set(socket.id, playerId);
+              const currentCount = playerIdToSocketCount.get(playerId) || 0;
+              playerIdToSocketCount.set(playerId, currentCount + 1);
+
+              // Emit updated unique player count
+              const uniqueCount = getUniqueOnlinePlayersCount();
+              io.emit("onlinePlayers", uniqueCount);
+            }
+
+            // Send updated gameState to the client who just joined
+            gameState = await getGameState(gameId);
+            if (gameState) {
+              // Ensure deduplication before sending
+              gameState = deduplicatePlayers(gameState);
+              io.to(socket.id).emit(GameEvents.UPDATE_GAME_STATE, gameState);
+            }
+          } catch (error: unknown) {
+            const errorMessage = error instanceof Error ? error.message : "Unknown error";
+            logger.error("[WS]: Error joining game", errorMessage);
             io.to(socket.id).emit("error", {
               message: "Impossible de rejoindre le jeu",
             });
@@ -295,16 +415,19 @@ export const initializeWebSocket = () => {
         try {
           const gameState = await getGameState(gameId);
           if (!gameState) {
-            return io.to(socket.id).emit("error", {
+            io.to(socket.id).emit("error", {
               message: "Impossible de trouver la partie",
             });
+            return;
           }
 
+          // Allow leaving if game is CREATED or ENDED, but not if it's STARTED
           if (gameState.status === GameStatus.STARTED) {
-            return io.to(socket.id).emit("error", {
+            io.to(socket.id).emit("error", {
               message:
                 "Impossible de quitter le jeu: la partie a déjà commencé",
             });
+            return;
           }
 
           if (isPlayerInGame(gameState, playerId)) {
@@ -312,16 +435,21 @@ export const initializeWebSocket = () => {
               (p: any) => p.id !== playerId
             );
             await setGameState(gameId, gameState);
+            
+            // Retirer le socket de la room avant d'émettre les événements
+            socket.leave(gameId);
+            
             io.to(gameId).emit(GameEvents.UPDATE_GAME_STATE, gameState);
             io.to(gameId).emit(GameEvents.PLAYER_LEFT, { playerId });
 
             await leaveGameService(gameId, playerId);
-            console.log(`[WS]: ${playerId} a quitté le jeu ${gameId}`);
+            logger.info(`[WS]: ${playerId} a quitté le jeu ${gameId}`);
           } else {
-            console.log(`[WS]: ${playerId} n'est pas dans le jeu ${gameId}`);
+            logger.debug(`[WS]: ${playerId} n'est pas dans le jeu ${gameId}`);
           }
-        } catch (error) {
-          console.error(error);
+        } catch (error: unknown) {
+          const errorMessage = error instanceof Error ? error.message : "Unknown error";
+          logger.error("[WS]: Error leaving game", errorMessage);
           io.to(socket.id).emit("error", {
             message: "Impossible de quitter le jeu",
           });
@@ -329,30 +457,54 @@ export const initializeWebSocket = () => {
       });
 
       socket.on("RESET_GAME", async ({ gameId }) => {
-        console.log(`[WS]: Réinitialisation du jeu ${gameId}`);
-        const gameState = await getGameState(gameId);
-        if (!gameState) {
-          return io.to(socket.id).emit("error", {
+        try {
+          logger.info(`[WS]: Réinitialisation du jeu ${gameId} vers le lobby`);
+          const gameState = await getGameState(gameId);
+          if (!gameState) {
+            io.to(socket.id).emit("error", {
+              message: "Impossible de réinitialiser le jeu",
+            });
+            return;
+          }
+
+          // Reset game state to lobby
+          const resetState = await resetGameToLobby(gameState);
+          
+          // Update database status to "created"
+          await resetGameToLobbyService(gameId);
+          
+          // Emit event to all players to redirect to lobby
+          io.to(gameId).emit(GameEvents.GAME_RESET_TO_LOBBY, {
+            gameId,
+            gameState: resetState,
+          });
+          
+          logger.info(`[WS]: Jeu ${gameId} réinitialisé, tous les joueurs retournent au lobby`);
+        } catch (error: unknown) {
+          const errorMessage = error instanceof Error ? error.message : "Unknown error";
+          logger.error("[WS]: Error resetting game to lobby", errorMessage);
+          io.to(socket.id).emit("error", {
             message: "Impossible de réinitialiser le jeu",
           });
         }
-        await startGame(gameState);
       });
 
       socket.on(GameEvents.GAME_STARTED, async ({ gameId }) => {
         try {
           let gameState = await getGameState(gameId);
           if (!gameState) {
-            return io.to(socket.id).emit("error", {
+            io.to(socket.id).emit("error", {
               message:
                 "Impossible de démarrer la partie: la partie existe déjà",
             });
+            return;
           }
           gameState = await startGame(gameState);
-          console.log(`[WS]: Lancement de la partie ${gameId}`);
+          logger.info(`[WS]: Lancement de la partie ${gameId}`);
           io.to(gameId).emit(GameEvents.GAME_STARTED, gameState);
-        } catch (error) {
-          console.error(error);
+        } catch (error: unknown) {
+          const errorMessage = error instanceof Error ? error.message : "Unknown error";
+          logger.error("[WS]: Error starting game", errorMessage);
           io.to(socket.id).emit("error", {
             message: "Impossible de démarrer la partie",
           });
@@ -366,12 +518,13 @@ export const initializeWebSocket = () => {
             let gameState = await getGameState(gameId);
 
             if (!gameState) {
-              return io.to(socket.id).emit("error", {
+              io.to(socket.id).emit("error", {
                 message: "Partie introuvable",
               });
+              return;
             }
 
-            console.log(
+            logger.debug(
               `[WS]: Action reçue de ${playerId} dans le jeu ${gameId}: `,
               action_type
             );
@@ -379,6 +532,36 @@ export const initializeWebSocket = () => {
             // Determine if the action is part of the player's turn or a reaction
             const isPlayerTurn = gameState.playerIdTurn === playerId;
             const isVotingActive = gameState.isVotingActive;
+            const player = gameState.players.find(p => p.id === playerId);
+            const isPlayerSick = player?.status === PlayerState.SICK;
+            const isPlayerDead = player?.status === PlayerState.DEAD;
+
+            // Dead players cannot perform any actions
+            if (isPlayerDead) {
+              io.to(socket.id).emit("error", {
+                message: "Vous êtes mort et ne pouvez plus effectuer d'actions",
+              });
+              return;
+            }
+
+            // Check if the player can perform the action
+            // USE_OBJECT can be used anytime (except if player is sick, unless voting)
+            // Other actions can only be used during player's turn (unless voting)
+            const isActionAllowed = 
+              action_type === PlayerAction.USE_OBJECT 
+                ? (!isPlayerSick || isVotingActive) // Can use objects unless sick (unless during vote)
+                : (isPlayerTurn && !isVotingActive && !isPlayerSick); // Other actions only during turn, not sick, not voting
+
+            if (!isActionAllowed) {
+              io.to(socket.id).emit("error", {
+                message: isPlayerSick 
+                  ? "Vous êtes malade et ne pouvez pas effectuer d'action (sauf pour vous sauver lors d'un vote)"
+                  : !isPlayerTurn && action_type !== PlayerAction.USE_OBJECT
+                  ? "Ce n'est pas votre tour"
+                  : "Action non autorisée dans cette phase",
+              });
+              return;
+            }
 
             // Handle player action
             gameState = await handlePlayerAction(
@@ -394,8 +577,8 @@ export const initializeWebSocket = () => {
             );
 
             // If the action was taken during the player's turn, run the game loop
-            if (isPlayerTurn && !isVotingActive) {
-              gameState = handleGameLoop(gameState);
+            if (isPlayerTurn && !isVotingActive && action_type !== PlayerAction.USE_OBJECT) {
+              gameState = await handleGameLoop(gameState);
             }
 
             await setGameState(gameId, gameState);
@@ -410,8 +593,9 @@ export const initializeWebSocket = () => {
               playerId,
               action_type,
             });
-          } catch (error) {
-            console.error(error);
+          } catch (error: unknown) {
+            const errorMessage = error instanceof Error ? error.message : "Unknown error";
+            logger.error("[WS]: Error processing action", errorMessage);
             io.to(socket.id).emit("error", {
               message: "Impossible de traiter l'action",
             });
@@ -425,37 +609,40 @@ export const initializeWebSocket = () => {
           try {
             let gameState = await getGameState(gameId);
             if (!gameState) {
-              return io.to(socket.id).emit("error", {
+              io.to(socket.id).emit("error", {
                 message: "Impossible de trouver la partie",
               });
+              return;
             }
 
             if (!gameState.isVotingActive) {
-              return io.to(socket.id).emit("error", {
+              io.to(socket.id).emit("error", {
                 message: "Impossible de voter: pas de vote en cours",
               });
+              return;
             }
 
             if (!isPlayerInGame(gameState, targetPlayerId)) {
-              return io.to(socket.id).emit("error", {
+              io.to(socket.id).emit("error", {
                 message: "Impossible de voter pour un joueur inexistant",
               });
+              return;
             }
 
-            // check if the player has already voted
-            if (gameState.voting?.some(v => v.playerId === playerId)) {
-              return io.to(socket.id).emit("error", {
-                message: "Vous avez déjà voté",
-              });
-            }
-
+            // Allow changing vote - no need to check if player already voted
             gameState = handlePlayerVote(gameState, playerId, targetPlayerId);
 
             await setGameState(gameId, gameState);
 
-            io.to(gameId).emit(GameEvents.VOTE, { playerId, targetPlayerId });
-          } catch (error) {
-            console.error(error);
+            // Check if game ended after vote
+            if (gameState.status === "ended") {
+              io.to(gameId).emit(GameEvents.GAME_ENDED, gameState);
+            } else {
+              io.to(gameId).emit(GameEvents.VOTE, { playerId, targetPlayerId });
+            }
+          } catch (error: unknown) {
+            const errorMessage = error instanceof Error ? error.message : "Unknown error";
+            logger.error("[WS]: Error voting", errorMessage);
             io.to(socket.id).emit("error", {
               message: "Impossible de voter",
             });
@@ -465,14 +652,33 @@ export const initializeWebSocket = () => {
 
       // Gestion de la déconnexion d'un client (joueur)
       socket.on("disconnect", () => {
-        console.log(`[WS]: Client déconnecté: ${socket.id}`);
-        const onlinePlayers = io.engine.clientsCount;
-        io.emit("onlinePlayers", onlinePlayers);
+        logger.info(`[WS]: Client déconnecté: ${socket.id}`);
+
+        // Remove player tracking for this socket
+        const playerId = socketToPlayerId.get(socket.id);
+        if (playerId) {
+          socketToPlayerId.delete(socket.id);
+          const currentCount = playerIdToSocketCount.get(playerId) || 0;
+
+          if (currentCount <= 1) {
+            // Last socket for this player, remove from unique count
+            playerIdToSocketCount.delete(playerId);
+          } else {
+            // Multiple sockets for this player, decrement count
+            playerIdToSocketCount.set(playerId, currentCount - 1);
+          }
+
+          // Emit updated unique player count
+          const uniqueCount = getUniqueOnlinePlayersCount();
+          io.emit("onlinePlayers", uniqueCount);
+        }
       });
     });
 
     return io;
-  } catch (error) {
-    console.error(error);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    logger.error("[WS]: Error initializing WebSocket", errorMessage);
+    return undefined;
   }
 };

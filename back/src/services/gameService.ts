@@ -1,12 +1,14 @@
 import {
-  GameStatus,
   getGameState,
   setGameState,
   startGame,
+  createGameState,
 } from "../game/Game";
 import { Player } from "../game/Player";
 import { Game } from "../models/gameModel";
 import { IGame, IPlayer } from "../types/types";
+import { getIO } from "../server";
+import { GameEvents } from "../game/Events";
 
 // Create a game
 export const createGame = async (data: Partial<IGame>): Promise<IGame> => {
@@ -114,10 +116,127 @@ export const startGameService = async (id: string): Promise<IGame | null> => {
     if (!gameState) {
       throw new Error("Game state not found");
     }
-    await startGame(gameState);
+    
+    // Add voteDuration from database to gameState
+    const updatedGameState = await startGame({
+      ...gameState,
+      voteDuration: game.voteDuration || 30,
+    });
+    
+    // Emit GAME_STARTED event to all players in the game room
+    const io = getIO();
+    io.to(id).emit(GameEvents.GAME_STARTED, updatedGameState);
+    
     return game;
-  } catch (error: any) {
-    throw new Error(error.message);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    throw new Error(errorMessage);
+  }
+};
+
+// Reset game to lobby (change status back to created)
+export const resetGameToLobbyService = async (id: string): Promise<void> => {
+  try {
+    const game = await Game.findById(id);
+
+    if (!game) {
+      throw new Error("Game not found");
+    }
+
+    game.status = "created";
+    await game.save();
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    throw new Error(errorMessage);
+  }
+};
+
+// End a game (change status to finished)
+export const endGameService = async (id: string): Promise<void> => {
+  try {
+    const game = await Game.findById(id);
+
+    if (!game) {
+      throw new Error("Game not found");
+    }
+
+    game.status = "finished";
+    await game.save();
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    throw new Error(errorMessage);
+  }
+};
+
+// Reset a finished game back to created state
+export const resetGameService = async (id: string): Promise<IGame | null> => {
+  try {
+    const game = await Game.findById(id);
+
+    if (!game) {
+      throw new Error("Game not found");
+    }
+
+    if (game.status !== "finished") {
+      throw new Error("Cannot reset game: game is not finished");
+    }
+
+    // Reset game status to created
+    game.status = "created";
+    await game.save();
+
+    // Create fresh game state in Redis with synced players
+    const freshGameState = await createGameState(id);
+
+    // Sync players from database to the fresh game state
+    if (game.players && game.players.length > 0) {
+      // Import the sync function from Game.ts
+      const { syncPlayersFromDatabase } = await import("../game/Game");
+      const syncedGameState = syncPlayersFromDatabase(freshGameState, game.players);
+      await setGameState(id, syncedGameState);
+
+      // Notify all connected players that the game has been reset
+      const io = getIO();
+      io.to(id).emit(GameEvents.GAME_RESET_TO_LOBBY, { gameState: syncedGameState });
+    } else {
+      // No players to sync, just emit with fresh state
+      const io = getIO();
+      io.to(id).emit(GameEvents.GAME_RESET_TO_LOBBY, { gameState: freshGameState });
+    }
+
+    return game;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    throw new Error(errorMessage);
+  }
+};
+
+// Update voteDuration for a game
+export const updateVoteDurationService = async (
+  id: string,
+  voteDuration: number
+): Promise<IGame | null> => {
+  try {
+    const game = await Game.findById(id);
+
+    if (!game) {
+      throw new Error("Game not found");
+    }
+
+    if (game.status !== "created") {
+      throw new Error("Cannot update voteDuration: game already started");
+    }
+
+    if (voteDuration < 10 || voteDuration > 300) {
+      throw new Error("voteDuration must be between 10 and 300 seconds");
+    }
+
+    game.voteDuration = voteDuration;
+    await game.save();
+    return game;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    throw new Error(errorMessage);
   }
 };
 

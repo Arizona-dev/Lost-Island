@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { Game } from "../types";
+import { Game, IPlayer } from "../types";
 import { useSort } from "../utils/useSort";
 import { createGame, getGames } from "../services/gameService";
 import clsx from "clsx";
@@ -11,6 +11,13 @@ import {
   faKey,
   faTachometerAlt,
 } from "@fortawesome/free-solid-svg-icons";
+
+// Helper function to get unique players count from database players
+const getUniquePlayersCount = (players: IPlayer[] | undefined): number => {
+  if (!players || players.length === 0) return 0;
+  const uniquePlayerIds = new Set(players.map((p: IPlayer) => p?.user?.id).filter(Boolean));
+  return uniquePlayerIds.size;
+};
 
 export const Lobby = () => {
   const [searchTerm, setSearchTerm] = useState("");
@@ -30,6 +37,9 @@ export const Lobby = () => {
       .value as "normal" | "extended";
     const password = (document.getElementById("password") as HTMLInputElement)
       .value;
+    const voteDuration = (
+      document.getElementById("voteDuration") as HTMLInputElement
+    ).value as unknown as number;
 
     if (!partyName || !maxPlayers || !difficulty || !gameLength) {
       setFormError("Veuillez remplir tous les champs.");
@@ -41,7 +51,8 @@ export const Lobby = () => {
       maxPlayers,
       difficulty,
       gameLength,
-      password,
+      voteDuration: voteDuration ? Number(voteDuration) : 30,
+      password: password || undefined,
     };
     const createdGame = await createGame(gameData);
     const games = await getGames();
@@ -52,6 +63,7 @@ export const Lobby = () => {
     (document.getElementById("difficulty") as HTMLInputElement).value =
       "normal";
     (document.getElementById("length") as HTMLInputElement).value = "normal";
+    (document.getElementById("voteDuration") as HTMLInputElement).value = "30";
     (document.getElementById("password") as HTMLInputElement).value = "";
     setFormError("");
     // redirect to join game
@@ -86,7 +98,7 @@ export const Lobby = () => {
             (game) =>
               game.status !== "finished" &&
               game.players?.find(
-                (player) => player?.user.id === localStorage.getItem("playerId")
+                (player: IPlayer) => player?.user.id === localStorage.getItem("playerId")
               )
           )
           .map((game) => (
@@ -120,7 +132,7 @@ export const Lobby = () => {
                   <div className="flex flex-col gap-2">
                     <span className="flex items-center text-white">
                       <i className="fas fa-users mr-2"></i>Joueurs:{" "}
-                      {game.players?.length} / {game.maxPlayers}
+                      {getUniquePlayersCount(game.players)} / {game.maxPlayers}
                     </span>
                     <span
                       className={`ml-2 rounded-full px-3 py-1 text-xs font-bold ${
@@ -241,7 +253,7 @@ export const Lobby = () => {
                       {game.partyName}
                     </td>
                     <td className="border-b border-neutral-500 px-4 py-2 text-center">
-                      {game?.players?.length} / {game.maxPlayers}
+                      {getUniquePlayersCount(game?.players)} / {game.maxPlayers}
                     </td>
                     <td className="border-b border-neutral-500 px-4 py-2">
                       {game.difficulty}
@@ -250,20 +262,25 @@ export const Lobby = () => {
                       {game.gameLength}
                     </td>
                     <td className="border-b border-neutral-500 px-4 py-2">
-                      {game.players?.length === game.maxPlayers ? (
-                        <span className="text-orange-500">Complet</span>
-                      ) : game.status === "created" ? (
-                        <Link
-                          to={`/join/${game.partyCode}`}
-                          className="text-green-500 hover:bg-green-900 hover:text-green-300 bg-green-800 p-2 rounded-md"
-                        >
-                          Rejoindre
-                        </Link>
-                      ) : game.status === "finished" ? (
-                        <span className="text-red-500">Terminée</span>
-                      ) : (
-                        <span className="text-yellow-500">En cours</span>
-                      )}
+                      {(() => {
+                        const playerCount = getUniquePlayersCount(game.players);
+                        const isFull = playerCount === game.maxPlayers;
+
+                        if (game.status === "started") {
+                          return <span className="text-yellow-500">Game in progress</span>;
+                        } else if (isFull && game.status !== "finished") {
+                          return <span className="text-orange-500">Complete</span>;
+                        } else {
+                          return (
+                            <Link
+                              to={`/join/${game.partyCode}`}
+                              className="text-green-500 hover:bg-green-900 hover:text-green-300 bg-green-800 p-2 rounded-md"
+                            >
+                              Open
+                            </Link>
+                          );
+                        }
+                      })()}
                     </td>
                   </tr>
                 ))}
@@ -308,6 +325,22 @@ export const Lobby = () => {
             <option value={"normal"}>Normal</option>
             <option value={"extended"}>Extended</option>
           </select>
+          <div className="flex flex-col w-full max-w-xs mb-4">
+            <label className="text-sm text-neutral-400 mb-1">
+              Durée du vote (secondes)
+            </label>
+            <input
+              id="voteDuration"
+              type="number"
+              autoComplete="off"
+              placeholder="Durée du vote"
+              defaultValue={30}
+              min={10}
+              max={300}
+              className="w-full p-2 border border-neutral-500 rounded-md"
+            />
+            <span className="text-xs text-neutral-400 mt-1">10 à 300 secondes</span>
+          </div>
           <input
             id="password"
             type="password"

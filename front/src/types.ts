@@ -24,7 +24,7 @@ export interface IGameInfo {
   weatherByDays: IWeatherDay[];
 }
 
-export type GameSettings = {
+export type Game = {
   _id: string;
   partyName: string;
   partyOwner: IUser;
@@ -32,10 +32,12 @@ export type GameSettings = {
   maxPlayers: number;
   difficulty: string;
   gameLength: string;
+  voteDuration?: number; // Durée du vote en secondes
   private: boolean;
   status: string;
   error?: string;
-  [key: string]: string | number | boolean | undefined | IUser;
+  players?: IPlayer[];
+  [key: string]: string | number | boolean | undefined | IUser | IPlayer[] | Game;
 };
 ////////////////////////////////////////
 
@@ -110,8 +112,12 @@ export type GameState = {
   resourceIndicators: ResourceIndicator;
   isHurricaneActive: boolean;
   isVotingActive: boolean;
+  votingReason?: "water" | "food" | "raft"; // Raison du vote: pénurie d'eau, de nourriture, ou manque de place sur le radeau
+  voteStartTime?: number; // Timestamp du début du vote
+  voteDuration?: number; // Durée du vote en secondes
   eventLog: EventLogEntry[];
   voting: Voting[];
+  numberOfPlayersToVote?: number;
 };
 
 export enum Actions {
@@ -120,4 +126,21 @@ export enum Actions {
   COLLECT_WATER = "COLLECT_WATER",
   COLLECT_WOOD = "COLLECT_WOOD",
   USE_OBJECT = "USE_OBJECT",
+}
+
+export enum GameEvents {
+  JOIN_GAME = "JOIN_GAME",
+  LEAVE_GAME = "LEAVE_GAME",
+  PLAYER_JOINED = "PLAYER_JOINED",
+  PLAYER_LEFT = "PLAYER_LEFT",
+  GAME_STARTED = "GAME_STARTED",
+  GAME_ENDED = "GAME_ENDED",
+  GAME_RESET_TO_LOBBY = "GAME_RESET_TO_LOBBY",
+  UPDATE_GAME_STATE = "UPDATE_GAME_STATE",
+  YOUR_TURN = "YOUR_TURN",
+  TURN_STARTED = "TURN_STARTED",
+  TURN_ENDED = "TURN_ENDED",
+  PLAYER_ACTION = "PLAYER_ACTION",
+  ACTION_PROCESSED = "ACTION_PROCESSED",
+  VOTE = "VOTE",
 }

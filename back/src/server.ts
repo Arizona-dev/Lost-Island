@@ -11,10 +11,14 @@ const app = express();
 const httpServer = createServer(app);
 let io: Server | null = null;
 
+const corsOrigin = process.env.CORS_ORIGIN || "http://localhost:5173";
+
 app.use(
   cors({
-    origin: "http://localhost:5173", // Remplacez par l'origine de votre frontend si différente
-    credentials: true, // Permet les cookies CORS
+    origin: corsOrigin.split(",").map(origin => origin.trim()),
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 app.use(express.json());

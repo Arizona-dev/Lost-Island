@@ -52,6 +52,7 @@ const GameSchema = new Schema<IGame>({
   },
   difficulty: { type: String, enum: ["normal", "extreme"], default: "normal" },
   gameLength: { type: String, enum: ["normal", "extended"], default: "normal" },
+  voteDuration: { type: Number, default: 30, min: 10, max: 300 }, // Durée du vote en secondes (10s à 5min)
   gameInfo: {
     currentDay: Number,
     remainingWater: Number,

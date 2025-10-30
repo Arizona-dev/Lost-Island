@@ -13,39 +13,117 @@
 
 import {
   GameState,
+  GameStatus,
   decrementResource,
   getNextPlayerTurn,
   setNextDay,
   switchFirstPlayer,
+  endGame,
 } from "./Game";
+import { PlayerState } from "./Player";
+import { Game } from "../models/gameModel";
+import logger from "../utils/logger";
 
 // 4. Survie des naufragés
 // A. Décompte Eau
 // B. Décompte Nourriture
 // 5. Fin du tour
 
-export const handleGameLoop = (gameState: GameState): GameState => {
+export const handleGameLoop = async (gameState: GameState): Promise<GameState> => {
   const players = gameState.players;
   const currentPlayerIndex = players.findIndex(
     player => player.id === gameState.playerIdTurn
   );
 
-  // Check if it's the last player's turn
-  if (currentPlayerIndex !== players.length - 1) {
-    console.log(
-      `Player ${players[currentPlayerIndex].id} has finished their turn. Passing to next player.`
-    );
+  // Find the next alive player after the current one
+  const nextAlivePlayerId = getNextPlayerTurn(gameState);
+
+  // Count alive players
+  const alivePlayers = players.filter(player => player.status !== PlayerState.DEAD);
+  const alivePlayerCount = alivePlayers.length;
+
+  // If there's only one player alive, they should keep taking turns,
+  // but we still need to check resources after each turn
+  if (alivePlayerCount === 1) {
+    logger.debug(`Only one player ${alivePlayers[0].id} is alive. Checking resources after their turn.`);
+
+    // For single player, simulate a "cycle completion" to trigger resource checks
+    // 1. Change the first player (will be the same player since only one alive)
+    let newState = switchFirstPlayer(gameState);
+
+    // 2. Draw the next weather card and set the next day
+    newState = setNextDay(newState);
+
+    // 3. Player actions (Handled outside this function before calling it)
+
+    // 4. Survival checks
+    const { newState: updatedState, needsVoting, gameEnded } = decrementResource(newState);
+
+    // If game ended (last player died), end the game
+    if (gameEnded) {
+      logger.info("Game ended: last player died due to insufficient resources");
+      await endGame(updatedState);
+      return updatedState;
+    }
+
+    // Check if resources are exhausted and set voting active if necessary
+    // (Though with only one player, voting doesn't make sense, but we'll handle it)
+    if (needsVoting) {
+      logger.info(`Single player: Resources are exhausted. This should trigger game end.`);
+      // For single player, if resources are exhausted, they should die
+      const singlePlayer = alivePlayers[0];
+      const updatedPlayers = gameState.players.map(player => {
+        if (player.id === singlePlayer.id) {
+          return { ...player, status: PlayerState.DEAD };
+        }
+        return player;
+      });
+
+      const endedState = {
+        ...updatedState,
+        players: updatedPlayers,
+        status: GameStatus.ENDED,
+      };
+
+      await endGame(endedState);
+      return endedState;
+    }
+
+    // Continue with the same player for next turn
     return {
-      ...gameState,
-      playerIdTurn: getNextPlayerTurn(gameState),
+      ...updatedState,
+      playerIdTurn: nextAlivePlayerId,
     };
   }
 
-  console.log(
-    `Last player ${players[currentPlayerIndex].id} has finished their turn. Moving to next round.`
+  // Find the first alive player in the CURRENT order (this is the cycle start for this day)
+  const firstAlivePlayerInCurrentOrder = players.find(player => player.status !== PlayerState.DEAD);
+
+  if (!firstAlivePlayerInCurrentOrder) {
+    logger.warn("No alive player found in handleGameLoop");
+    return gameState;
+  }
+
+  // If the next alive player is the same as the first alive player in the current order,
+  // we've completed a full cycle of all alive players in this round
+  const hasCompletedCycle = nextAlivePlayerId === firstAlivePlayerInCurrentOrder.id;
+
+  // Check if it's NOT the last alive player's turn (continue to next player)
+  if (!hasCompletedCycle) {
+    logger.debug(
+      `Player ${players[currentPlayerIndex].id} has finished their turn. Passing to next player ${nextAlivePlayerId}.`
+    );
+    return {
+      ...gameState,
+      playerIdTurn: nextAlivePlayerId,
+    };
+  }
+
+  logger.debug(
+    `Last alive player ${players[currentPlayerIndex].id} has finished their turn. Moving to next round.`
   );
 
-  // 1. Change the first player
+  // 1. Change the first player (find next player in original order, don't rotate list)
   let newState = switchFirstPlayer(gameState);
 
   // 2. Draw the next weather card and set the next day
@@ -54,18 +132,32 @@ export const handleGameLoop = (gameState: GameState): GameState => {
   // 3. Player actions (Handled outside this function before calling it)
 
   // 4. Survival checks
-  const { newState: updatedState, needsVoting } = decrementResource(newState);
+  const { newState: updatedState, needsVoting, gameEnded } = decrementResource(newState);
+
+  // If game ended (last player died), end the game
+  if (gameEnded) {
+    logger.info("Game ended: last player died due to insufficient resources");
+    await endGame(updatedState);
+    return updatedState;
+  }
 
   // Check if resources are exhausted and set voting active if necessary
   if (needsVoting) {
-    console.log(`Resources are exhausted. Voting phase is activated.`);
+    logger.info(`Resources are exhausted. Voting phase is activated for ${updatedState.votingReason || "unknown reason"}.`);
+    // Initialize vote timer - get voteDuration from database
+    const game = await Game.findById(updatedState.id);
+    const voteDuration = game?.voteDuration || 30;
+    const voteStartTime = Date.now();
     return {
       ...updatedState,
       isVotingActive: true,
+      voteStartTime,
+      voteDuration,
+      voting: [], // Reset votes
     };
   }
 
   // 5. End the turn and prepare for the next round
-  console.log(`Round completed. Moving to the next round.`);
-  return newState;
+  logger.debug("Round completed. Moving to the next round.");
+  return updatedState;
 };

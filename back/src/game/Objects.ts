@@ -14,6 +14,7 @@ import {
   handleWeatherEffect,
   handleWhetstone,
 } from "./ObjectsEffects";
+import logger from "../utils/logger";
 
 export enum EffectType {
   "NOTHING" = "nothing",
@@ -411,7 +412,7 @@ export const handleUseObject = (
   objectId?: string,
   targetedPlayersId?: string[]
 ): GameState => {
-  console.log(`Player ${playerId} used object ${objectId}`);
+  logger.debug(`Player ${playerId} used object ${objectId}`);
 
   // Find the object being used
   const object = allObjects.find(obj => obj.id === objectId);
@@ -436,7 +437,7 @@ export const handleUseObject = (
         switch (effect.type) {
           case EffectType.NOTHING:
             // No effect
-            console.log(`Object ${objectId} has no effect.`);
+            logger.debug(`Object ${objectId} has no effect.`);
             break;
           case EffectType.FOOD:
             gameState = handleFoodEffect(gameState, effect.value);
