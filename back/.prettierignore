@@ -1,0 +1,10 @@
+node_modules/
+build/
+dist/
+*.log
+package-lock.json
+.env
+.env.local
+coverage/
+.nyc_output/
+
