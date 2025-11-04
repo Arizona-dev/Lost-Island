@@ -690,6 +690,56 @@ export const initializeWebSocket = () => {
         }
       });
 
+      socket.on("SETTINGS_UPDATED", async ({ gameId, settings }) => {
+        try {
+          logger.info(`[WS]: Paramètres mis à jour pour le jeu ${gameId}`);
+
+          // Broadcast the updated settings to all players in the game room
+          io.to(gameId).emit("SETTINGS_UPDATED", {
+            gameId,
+            settings,
+          });
+
+          logger.info(`[WS]: Paramètres diffusés pour le jeu ${gameId}`);
+        } catch (error) {
+          logger.error(`[WS]: Erreur lors de la diffusion des paramètres pour le jeu ${gameId}`, error);
+        }
+      });
+
+      socket.on("PLAYER_KICKED", async ({ gameId, playerId, playerName }) => {
+        try {
+          logger.info(`[WS]: Joueur ${playerName} (${playerId}) expulsé du jeu ${gameId}`);
+
+          // Broadcast to all players in the game room that a player was kicked
+          io.to(gameId).emit("PLAYER_KICKED", {
+            gameId,
+            playerId,
+            playerName,
+          });
+
+          logger.info(`[WS]: Expulsion diffusée pour le jeu ${gameId}`);
+        } catch (error) {
+          logger.error(`[WS]: Erreur lors de la diffusion de l'expulsion pour le jeu ${gameId}`, error);
+        }
+      });
+
+      socket.on("PLAYER_BANNED", async ({ gameId, playerId, playerName }) => {
+        try {
+          logger.info(`[WS]: Joueur ${playerName} (${playerId}) banni du jeu ${gameId}`);
+
+          // Broadcast to all players in the game room that a player was banned
+          io.to(gameId).emit("PLAYER_BANNED", {
+            gameId,
+            playerId,
+            playerName,
+          });
+
+          logger.info(`[WS]: Bannissement diffusé pour le jeu ${gameId}`);
+        } catch (error) {
+          logger.error(`[WS]: Erreur lors de la diffusion du bannissement pour le jeu ${gameId}`, error);
+        }
+      });
+
       socket.on(GameEvents.GAME_STARTED, async ({ gameId }) => {
         try {
           let gameState = await getGameState(gameId);

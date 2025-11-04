@@ -135,6 +135,120 @@ export const updateVoteDuration = async (partyId: string, voteDuration: number) 
   }
 };
 
+// Mettre à jour le statut privé d'une partie
+export const updatePrivate = async (partyId: string, isPrivate: boolean, password?: string) => {
+  try {
+    const { data } = await axios.patch(
+      `${API_URL}/${partyId}/private`,
+      {
+        private: isPrivate,
+        password,
+      },
+      {
+        headers: getAuthHeader(),
+      }
+    );
+    return data;
+  } catch (error) {
+    console.error("Erreur lors de la mise à jour du statut privé", error);
+    throw error;
+  }
+};
+
+// Mettre à jour la difficulté d'une partie
+export const updateDifficulty = async (partyId: string, difficulty: "normal" | "extreme") => {
+  try {
+    const { data } = await axios.patch(
+      `${API_URL}/${partyId}/difficulty`,
+      {
+        difficulty,
+      },
+      {
+        headers: getAuthHeader(),
+      }
+    );
+    return data;
+  } catch (error) {
+    console.error("Erreur lors de la mise à jour de la difficulté", error);
+    throw error;
+  }
+};
+
+// Mettre à jour la durée de partie
+export const updateGameLength = async (partyId: string, gameLength: "normal" | "extended") => {
+  try {
+    const { data } = await axios.patch(
+      `${API_URL}/${partyId}/gameLength`,
+      {
+        gameLength,
+      },
+      {
+        headers: getAuthHeader(),
+      }
+    );
+    return data;
+  } catch (error) {
+    console.error("Erreur lors de la mise à jour de la durée de partie", error);
+    throw error;
+  }
+};
+
+// Mettre à jour le nombre maximum de joueurs
+export const updateMaxPlayers = async (partyId: string, maxPlayers: number) => {
+  try {
+    const { data } = await axios.patch(
+      `${API_URL}/${partyId}/maxPlayers`,
+      {
+        maxPlayers,
+      },
+      {
+        headers: getAuthHeader(),
+      }
+    );
+    return data;
+  } catch (error) {
+    console.error("Erreur lors de la mise à jour du nombre maximum de joueurs", error);
+    throw error;
+  }
+};
+
+export const kickPlayer = async (partyId: string, playerId: string) => {
+  try {
+    const { data } = await axios.post(
+      `${API_URL}/${partyId}/kick`,
+      {
+        playerId,
+      },
+      {
+        headers: getAuthHeader(),
+      }
+    );
+    return data;
+  } catch (error) {
+    console.error("Erreur lors de l'expulsion du joueur", error);
+    throw error;
+  }
+};
+
+export const banPlayer = async (partyId: string, playerId: string, playerName: string) => {
+  try {
+    const { data } = await axios.post(
+      `${API_URL}/${partyId}/ban`,
+      {
+        playerId,
+        playerName,
+      },
+      {
+        headers: getAuthHeader(),
+      }
+    );
+    return data;
+  } catch (error) {
+    console.error("Erreur lors du bannissement du joueur", error);
+    throw error;
+  }
+};
+
 // Réinitialiser une partie terminée
 export const resetGame = async (partyId: string) => {
   try {
@@ -152,4 +266,4 @@ export const resetGame = async (partyId: string) => {
   }
 };
 
-export default { createGame, joinGame, getGames, startGame, updateVoteDuration, resetGame };
+export default { createGame, joinGame, getGames, startGame, updateVoteDuration, updatePrivate, updateDifficulty, updateGameLength, updateMaxPlayers, kickPlayer, banPlayer, resetGame };

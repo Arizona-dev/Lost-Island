@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { login } from "../services/authService";
 
 import config from "../config";
@@ -9,6 +9,7 @@ const Login = () => {
   const [error, setError] = useState({ message: "" });
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleLogin = async () => {
     try {
@@ -28,7 +29,14 @@ const Login = () => {
       // Call the auth service to create a session
       await login(player.trim());
 
-      navigate("/lobby");
+      // Check if there's a redirect parameter
+      const urlParams = new URLSearchParams(location.search);
+      const redirectPath = urlParams.get("redirect");
+      if (redirectPath) {
+        navigate(redirectPath);
+      } else {
+        navigate("/lobby");
+      }
     } catch (error) {
       console.error(error);
       setError({ message: "Erreur lors de la connexion. Veuillez réessayer." });

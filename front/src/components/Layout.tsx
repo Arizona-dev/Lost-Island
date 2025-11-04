@@ -1,10 +1,11 @@
-import { Outlet, useNavigate } from "react-router-dom";
+import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import Navbar from "./Navbar";
 import Login from "./Login";
 import { useEffect, useState } from "react";
 
 export const Layout = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const playerName = localStorage.getItem("playerName");
   const playerId = localStorage.getItem("playerId");
 
@@ -18,13 +19,15 @@ export const Layout = () => {
 
     if (playerName && playerId) {
       setLoggedIn(true);
-      if (window.location.pathname === "/") {
-        navigate("/lobby");
-      }
     } else {
-      navigate("/");
+      setLoggedIn(false);
+      // Only redirect to login page if not already there
+      if (location.pathname !== "/") {
+        const currentPath = location.pathname + location.search;
+        navigate(`/?redirect=${encodeURIComponent(currentPath)}`);
+      }
     }
-  }, [navigate]);
+  }, [navigate, location]);
 
   useEffect(() => {
     const syncLoginState = () => {

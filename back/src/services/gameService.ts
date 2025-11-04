@@ -108,6 +108,11 @@ export const joinGameService = async (
     throw new Error("Game is full");
   }
 
+  // Check if player is banned from this game
+  if (game.bannedPlayers && game.bannedPlayers.some(banned => banned.id === player.id)) {
+    throw new Error("You are banned from this game");
+  }
+
   const newPlayer: IPlayer = {
     user: player,
     status: "alive",
@@ -369,9 +374,193 @@ export const updateVoteDurationService = async (
   }
 };
 
+// Update private status for a game
+export const updatePrivateService = async (
+  partyCode: string,
+  isPrivate: boolean,
+  password?: string
+): Promise<IGame | null> => {
+  try {
+    const game = await Game.findOne({ partyCode });
+
+    if (!game) {
+      throw new Error("Game not found");
+    }
+
+    if (game.status !== "created") {
+      throw new Error("Cannot update private status: game already started");
+    }
+
+    if (isPrivate && !password) {
+      throw new Error("Password required for private games");
+    }
+
+    game.private = isPrivate;
+    if (isPrivate) {
+      game.password = password;
+    } else {
+      game.password = undefined;
+    }
+    await game.save();
+    return game;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    throw new Error(errorMessage);
+  }
+};
+
+// Update difficulty for a game
+export const updateDifficultyService = async (
+  partyCode: string,
+  difficulty: "normal" | "extreme"
+): Promise<IGame | null> => {
+  try {
+    const game = await Game.findOne({ partyCode });
+
+    if (!game) {
+      throw new Error("Game not found");
+    }
+
+    if (game.status !== "created") {
+      throw new Error("Cannot update difficulty: game already started");
+    }
+
+    if (difficulty !== "normal" && difficulty !== "extreme") {
+      throw new Error("Invalid difficulty");
+    }
+
+    game.difficulty = difficulty;
+    await game.save();
+    return game;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    throw new Error(errorMessage);
+  }
+};
+
+// Update gameLength for a game
+export const updateGameLengthService = async (
+  partyCode: string,
+  gameLength: "normal" | "extended"
+): Promise<IGame | null> => {
+  try {
+    const game = await Game.findOne({ partyCode });
+
+    if (!game) {
+      throw new Error("Game not found");
+    }
+
+    if (game.status !== "created") {
+      throw new Error("Cannot update gameLength: game already started");
+    }
+
+    if (gameLength !== "normal" && gameLength !== "extended") {
+      throw new Error("Invalid gameLength");
+    }
+
+    game.gameLength = gameLength;
+    await game.save();
+    return game;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    throw new Error(errorMessage);
+  }
+};
+
+// Update maxPlayers for a game
+export const updateMaxPlayersService = async (
+  partyCode: string,
+  maxPlayers: number
+): Promise<IGame | null> => {
+  try {
+    const game = await Game.findOne({ partyCode });
+
+    if (!game) {
+      throw new Error("Game not found");
+    }
+
+    if (game.status !== "created") {
+      throw new Error("Cannot update maxPlayers: game already started");
+    }
+
+    if (maxPlayers < 3 || maxPlayers > 12) {
+      throw new Error("maxPlayers must be between 3 and 12");
+    }
+
+    game.maxPlayers = maxPlayers;
+    await game.save();
+    return game;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    throw new Error(errorMessage);
+  }
+};
+
 // Fetch all games
 export const getGames = async (): Promise<IGame[]> => {
   // exclude the password field and gameInfo
   const games = await Game.find({}, { password: 0, gameInfo: 0 }).exec();
   return games;
+};
+
+// Kick a player from a game (they can rejoin)
+export const kickPlayerService = async (
+  partyCode: string,
+  playerId: string
+): Promise<IGame | null> => {
+  try {
+    const game = await Game.findOne({ partyCode });
+
+    if (!game) {
+      throw new Error("Game not found");
+    }
+
+    if (game.status !== "created") {
+      throw new Error("Cannot kick players: game already started");
+    }
+
+    // Remove player from the game
+    game.players = game.players.filter(p => p.user.id !== playerId);
+    await game.save();
+
+    return game;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    throw new Error(errorMessage);
+  }
+};
+
+// Ban a player from a game (they cannot rejoin this game)
+export const banPlayerService = async (
+  partyCode: string,
+  playerId: string,
+  playerName: string
+): Promise<IGame | null> => {
+  try {
+    const game = await Game.findOne({ partyCode });
+
+    if (!game) {
+      throw new Error("Game not found");
+    }
+
+    if (game.status !== "created") {
+      throw new Error("Cannot ban players: game already started");
+    }
+
+    // Remove player from the game
+    game.players = game.players.filter(p => p.user.id !== playerId);
+
+    // Add to banned players list
+    if (!game.bannedPlayers) {
+      game.bannedPlayers = [];
+    }
+    game.bannedPlayers.push({ id: playerId, name: playerName });
+
+    await game.save();
+
+    return game;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    throw new Error(errorMessage);
+  }
 };

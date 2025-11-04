@@ -6,6 +6,12 @@ import {
   joinGameService,
   startGameService,
   updateVoteDurationService,
+  updatePrivateService,
+  updateDifficultyService,
+  updateGameLengthService,
+  updateMaxPlayersService,
+  kickPlayerService,
+  banPlayerService,
   resetGameService,
 } from "../services/gameService";
 import logger from "../utils/logger";
@@ -106,6 +112,96 @@ export const resetGameController = async (req: Request, res: Response) => {
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     logger.error("[CONTROLLER]: Error resetting game", errorMessage);
+    res.status(500).send(errorMessage);
+  }
+};
+
+export const updatePrivateController = async (req: Request, res: Response) => {
+  try {
+    const game = await updatePrivateService(req.params.id, req.body.private, req.body.password);
+    if (!game) {
+      res.status(404).send("Game not found");
+      return;
+    }
+    res.json(game);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    logger.error("[CONTROLLER]: Error updating private", errorMessage);
+    res.status(500).send(errorMessage);
+  }
+};
+
+export const updateDifficultyController = async (req: Request, res: Response) => {
+  try {
+    const game = await updateDifficultyService(req.params.id, req.body.difficulty);
+    if (!game) {
+      res.status(404).send("Game not found");
+      return;
+    }
+    res.json(game);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    logger.error("[CONTROLLER]: Error updating difficulty", errorMessage);
+    res.status(500).send(errorMessage);
+  }
+};
+
+export const updateGameLengthController = async (req: Request, res: Response) => {
+  try {
+    const game = await updateGameLengthService(req.params.id, req.body.gameLength);
+    if (!game) {
+      res.status(404).send("Game not found");
+      return;
+    }
+    res.json(game);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    logger.error("[CONTROLLER]: Error updating gameLength", errorMessage);
+    res.status(500).send(errorMessage);
+  }
+};
+
+export const updateMaxPlayersController = async (req: Request, res: Response) => {
+  try {
+    const game = await updateMaxPlayersService(req.params.id, req.body.maxPlayers);
+    if (!game) {
+      res.status(404).send("Game not found");
+      return;
+    }
+    res.json(game);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    logger.error("[CONTROLLER]: Error updating maxPlayers", errorMessage);
+    res.status(500).send(errorMessage);
+  }
+};
+
+export const kickPlayerController = async (req: Request, res: Response) => {
+  try {
+    const game = await kickPlayerService(req.params.id, req.body.playerId);
+    if (!game) {
+      res.status(404).send("Game not found");
+      return;
+    }
+    res.json(game);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    logger.error("[CONTROLLER]: Error kicking player", errorMessage);
+    res.status(500).send(errorMessage);
+  }
+};
+
+export const banPlayerController = async (req: Request, res: Response) => {
+  try {
+    const game = await banPlayerService(req.params.id, req.body.playerId, req.body.playerName);
+    if (!game) {
+      res.status(404).send("Game not found");
+      return;
+    }
+    res.json(game);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    logger.error("[CONTROLLER]: Error banning player", errorMessage);
     res.status(500).send(errorMessage);
   }
 };

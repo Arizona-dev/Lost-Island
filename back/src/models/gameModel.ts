@@ -43,6 +43,7 @@ const GameSchema = new Schema<IGame>({
   partyOwner: { id: String, name: String },
   maxPlayers: { type: Number, required: true },
   players: [PlayerSchema],
+  bannedPlayers: [{ id: String, name: String }],
   password: String,
   private: { type: Boolean, default: false },
   status: {

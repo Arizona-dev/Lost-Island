@@ -32,6 +32,7 @@ export interface IGame extends Document {
   gameLength: "normal" | "extended";
   voteDuration?: number; // Durée du vote en secondes (défaut: 30)
   players: IPlayer[];
+  bannedPlayers?: IUser[];
   gameInfo?: IGameInfo;
 }
 
