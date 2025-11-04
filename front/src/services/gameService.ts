@@ -4,6 +4,14 @@ import { Game, IUser } from "../types";
 
 const API_URL = config.api.url + "/api/games";
 
+/**
+ * Get Authorization header with session token
+ */
+const getAuthHeader = () => {
+  const sessionToken = localStorage.getItem("sessionToken");
+  return sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {};
+};
+
 // Créer une nouvelle partie
 export const createGame = async (partyDetails: {
   partyName: string;
@@ -23,14 +31,19 @@ export const createGame = async (partyDetails: {
       );
     }
 
-    const { data } = await axios.post(`${API_URL}/create`, {
-      ...partyDetails,
-      partyOwner: {
-        id: playerId,
-        name: partyOwner,
+    const { data } = await axios.post(
+      `${API_URL}/create`,
+      {
+        ...partyDetails,
+        partyOwner: {
+          id: playerId,
+          name: partyOwner,
+        },
       },
-    });
-    // await joinGame({ id: playerId, name: partyOwner }, data._id);
+      {
+        headers: getAuthHeader(),
+      }
+    );
     return data;
   } catch (error) {
     console.error("Erreur lors de la création de la partie", error);
@@ -41,9 +54,15 @@ export const createGame = async (partyDetails: {
 // Rejoindre une partie existante
 export const joinGame = async (player: IUser, partyId: string) => {
   try {
-    const { data } = await axios.post(`${API_URL}/${partyId}/join`, {
-      player,
-    });
+    const { data } = await axios.post(
+      `${API_URL}/${partyId}/join`,
+      {
+        player,
+      },
+      {
+        headers: getAuthHeader(),
+      }
+    );
     return data;
   } catch (error) {
     console.error("Erreur lors de la tentative de rejoindre la partie", error);
@@ -64,14 +83,16 @@ export const getGames = async () => {
 
 export const getGame = async (
   gameCode: string,
-  password?: string
+  password?: string,
+  playerId?: string
 ): Promise<Game> => {
   try {
+    const params = playerId ? { playerId } : {};
     if (!password) {
-      const { data } = await axios.get(`${API_URL}/${gameCode}`);
+      const { data } = await axios.get(`${API_URL}/${gameCode}`, { params });
       return data;
     }
-    const { data } = await axios.get(`${API_URL}/${gameCode}/${password}`);
+    const { data } = await axios.get(`${API_URL}/${gameCode}/${password}`, { params });
     return data;
   } catch (error) {
     console.error("Erreur lors de la récupération de la partie", error);
@@ -81,7 +102,13 @@ export const getGame = async (
 
 export const startGame = async (partyId: string) => {
   try {
-    const { data } = await axios.post(`${API_URL}/${partyId}/start`);
+    const { data } = await axios.post(
+      `${API_URL}/${partyId}/start`,
+      {},
+      {
+        headers: getAuthHeader(),
+      }
+    );
     return data;
   } catch (error) {
     console.error("Erreur lors du démarrage de la partie", error);
@@ -92,9 +119,15 @@ export const startGame = async (partyId: string) => {
 // Mettre à jour voteDuration d'une partie
 export const updateVoteDuration = async (partyId: string, voteDuration: number) => {
   try {
-    const { data } = await axios.patch(`${API_URL}/${partyId}/voteDuration`, {
-      voteDuration,
-    });
+    const { data } = await axios.patch(
+      `${API_URL}/${partyId}/voteDuration`,
+      {
+        voteDuration,
+      },
+      {
+        headers: getAuthHeader(),
+      }
+    );
     return data;
   } catch (error) {
     console.error("Erreur lors de la mise à jour de voteDuration", error);
@@ -105,7 +138,13 @@ export const updateVoteDuration = async (partyId: string, voteDuration: number) 
 // Réinitialiser une partie terminée
 export const resetGame = async (partyId: string) => {
   try {
-    const { data } = await axios.post(`${API_URL}/${partyId}/reset`);
+    const { data } = await axios.post(
+      `${API_URL}/${partyId}/reset`,
+      {},
+      {
+        headers: getAuthHeader(),
+      }
+    );
     return data;
   } catch (error) {
     console.error("Erreur lors de la réinitialisation de la partie", error);

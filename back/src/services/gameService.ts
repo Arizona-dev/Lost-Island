@@ -5,11 +5,11 @@ import {
   createGameState,
   removePlayerFromGame,
 } from "../game/Game";
-import { Player } from "../game/Player";
 import { Game } from "../models/gameModel";
-import { IGame, IPlayer } from "../types/types";
+import { IGame, IPlayer, IUser } from "../types/types";
 import { getIO } from "../server";
 import { GameEvents } from "../game/Events";
+import logger from "../utils/logger";
 
 // Create a game
 export const createGame = async (data: Partial<IGame>): Promise<IGame> => {
@@ -17,6 +17,19 @@ export const createGame = async (data: Partial<IGame>): Promise<IGame> => {
   const game = new Game(data);
   game.partyCode = partyCode;
   game.private = data.password ? true : false;
+  
+  // Add the host/owner as the first player
+  if (data.partyOwner) {
+    const hostPlayer: IPlayer = {
+      user: {
+        id: data.partyOwner.id,
+        name: data.partyOwner.name,
+      },
+      status: "alive",
+    };
+    game.players = [hostPlayer];
+  }
+  
   await game.save();
   return game;
 };
@@ -24,13 +37,28 @@ export const createGame = async (data: Partial<IGame>): Promise<IGame> => {
 // Fetch a game by ID
 export const getGame = async (
   id: string,
-  password?: string
+  password?: string,
+  playerId?: string
 ): Promise<Partial<IGame & { error?: string }> | null> => {
   const game = await Game.findOne({ partyCode: id });
 
-  if (!game?.private) {
-    delete game?.password;
-    return game;
+  if (!game) {
+    return null;
+  }
+
+  if (!game.private) {
+    const gameObj = game.toObject();
+    delete gameObj.password;
+    return gameObj;
+  }
+
+  // If player is already in the game or is the host, return full data
+  const isPlayerInGame = playerId && game.players?.some(p => p?.user?.id === playerId);
+  const isHost = playerId && game.partyOwner?.id === playerId;
+  if (isPlayerInGame || isHost) {
+    const gameObj = game.toObject();
+    delete gameObj.password;
+    return gameObj;
   }
 
   if (!password) {
@@ -38,6 +66,8 @@ export const getGame = async (
       partyName: game.partyName,
       partyCode: game.partyCode,
       private: game.private,
+      partyOwner: game.partyOwner,
+      players: game.players,
       error: "Mot de passe requis",
     };
   }
@@ -50,14 +80,15 @@ export const getGame = async (
     };
   }
 
-  delete game.password;
-  return game;
+  const gameObj = game.toObject();
+  delete gameObj.password;
+  return gameObj;
 };
 
 // Join a game
 export const joinGameService = async (
   id: string,
-  player: Player
+  player: IUser
 ): Promise<void> => {
   const game = await Game.findById(id);
 
@@ -114,9 +145,32 @@ export const leaveGameService = async (
     await assignNewHost(game);
   }
 
-  // If no players remain, clean up the game
+  // If no players remain, schedule game cleanup after grace period
+  // For lobby games (status: created), give 60 seconds grace period for reconnection
+  // For active games (status: started), delete immediately to prevent orphaned games
   if (!game.players || game.players.length === 0) {
-    await deleteGameAndState(id, game.status === "started");
+    if (game.status === "created") {
+      // Schedule deletion after 60 seconds for lobby games
+      logger.info(`[GAME]: No players in lobby ${id}. Scheduling deletion in 60 seconds.`);
+      setTimeout(async () => {
+        try {
+          // Re-fetch game to check if players have returned
+          const currentGame = await Game.findById(id);
+          if (currentGame && (!currentGame.players || currentGame.players.length === 0)) {
+            logger.info(`[GAME]: Grace period expired for lobby ${id}. Deleting game.`);
+            await deleteGameAndState(id, false);
+          } else {
+            logger.info(`[GAME]: Players returned to lobby ${id}. Keeping game alive.`);
+          }
+        } catch (error: unknown) {
+          const errorMessage = error instanceof Error ? error.message : "Unknown error";
+          logger.error(`[GAME]: Error during scheduled cleanup of lobby ${id}: ${errorMessage}`);
+        }
+      }, 60000); // 60 seconds
+    } else {
+      // For started/finished games, delete immediately
+      await deleteGameAndState(id, game.status === "started");
+    }
   }
 };
 
@@ -288,11 +342,11 @@ export const resetGameService = async (id: string): Promise<IGame | null> => {
 
 // Update voteDuration for a game
 export const updateVoteDurationService = async (
-  id: string,
+  partyCode: string,
   voteDuration: number
 ): Promise<IGame | null> => {
   try {
-    const game = await Game.findById(id);
+    const game = await Game.findOne({ partyCode });
 
     if (!game) {
       throw new Error("Game not found");

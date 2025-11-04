@@ -1,29 +1,39 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { v4 as uuidv4 } from "uuid";
+import { login } from "../services/authService";
 
 import config from "../config";
 
 const Login = () => {
   const [player, setPlayer] = useState("");
   const [error, setError] = useState({ message: "" });
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleLogin = async () => {
     try {
-      if (!player) {
+      if (!player || player.trim().length === 0) {
         setError({ message: "Veuillez saisir votre nom" });
         return;
       }
 
-      const userId = uuidv4();
+      if (player.trim().length > 50) {
+        setError({ message: "Le nom doit faire moins de 50 caractères" });
+        return;
+      }
 
-      localStorage.setItem("playerName", player);
-      localStorage.setItem("playerId", userId);
+      setLoading(true);
+      setError({ message: "" });
+
+      // Call the auth service to create a session
+      await login(player.trim());
 
       navigate("/lobby");
     } catch (error) {
       console.error(error);
+      setError({ message: "Erreur lors de la connexion. Veuillez réessayer." });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -41,8 +51,12 @@ const Login = () => {
           onChange={(e) => setPlayer(e.target.value)}
         />
         {error && <p className="text-red-500 mb-2">{error.message}</p>}
-        <button className="w-full bg-green-600" onClick={handleLogin}>
-          Commencer
+        <button 
+          className="w-full bg-green-600" 
+          onClick={handleLogin}
+          disabled={loading}
+        >
+          {loading ? "Connexion..." : "Commencer"}
         </button>
       </div>
     </div>

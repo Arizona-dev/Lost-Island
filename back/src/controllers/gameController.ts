@@ -23,7 +23,9 @@ export const createGameController = async (req: Request, res: Response) => {
 
 export const getGameController = async (req: Request, res: Response) => {
   try {
-    const game = await getGame(req.params.id, req.params.password);
+    // Use authenticated playerId from session if available, otherwise fall back to query param
+    const playerId = req.session?.playerId || (req.query.playerId as string);
+    const game = await getGame(req.params.id, req.params.password, playerId);
     if (!game) {
       res.status(404).send("Game not found");
       return;
@@ -49,7 +51,12 @@ export const getGamesController = async (_req: Request, res: Response) => {
 
 export const joinGameController = async (req: Request, res: Response) => {
   try {
-    await joinGameService(req.params.id, req.body.player);
+    // Use authenticated player from session (requireAuth middleware ensures this exists)
+    const player = {
+      id: req.session!.playerId,
+      name: req.session!.playerName,
+    };
+    await joinGameService(req.params.id, player);
     res.status(204).send();
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";

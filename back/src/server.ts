@@ -4,6 +4,7 @@ import { Server } from "socket.io";
 import { createServer } from "http";
 import { connectDB } from "./config/index";
 import gameRoutes from "./routes/gameRoutes";
+import authRoutes from "./routes/authRoutes";
 import { initializeWebSocket } from "./websocket";
 import logger from "./utils/logger";
 
@@ -22,6 +23,7 @@ app.use(
   })
 );
 app.use(express.json());
+app.use("/api/auth", authRoutes);
 app.use("/api/games", gameRoutes);
 
 connectDB();

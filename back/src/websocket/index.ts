@@ -209,14 +209,24 @@ import {
  * - Safe turn management during player removal
  */
 
-import { leaveGameService, joinGameService, resetGameToLobbyService } from "../services/gameService";
+import {
+  leaveGameService,
+  joinGameService,
+  resetGameToLobbyService,
+} from "../services/gameService";
 import { Game } from "../models/gameModel";
 import { getIO } from "../server";
 import { IPlayer } from "../types/types";
 import { handleGameLoop } from "../game/GameLoop";
 import logger from "../utils/logger";
 import { Redis } from "ioredis";
-import { markOnline, markOffline, startGraceTimer, clearGraceTimer } from "../services/presenceService";
+import {
+  markOnline,
+  markOffline,
+  startGraceTimer,
+  clearGraceTimer,
+} from "../services/presenceService";
+import { validateSession } from "../utils/sessionManager";
 
 const redis = new Redis();
 
@@ -254,7 +264,11 @@ export const initializeWebSocket = () => {
           if (!gameState) continue;
 
           // Check for expired votes
-          if (gameState.isVotingActive && gameState.voteStartTime && gameState.voteDuration) {
+          if (
+            gameState.isVotingActive &&
+            gameState.voteStartTime &&
+            gameState.voteDuration
+          ) {
             const elapsed = (Date.now() - gameState.voteStartTime) / 1000; // seconds
             if (elapsed >= gameState.voteDuration) {
               // Timer expired - finalize the vote
@@ -266,23 +280,38 @@ export const initializeWebSocket = () => {
               if (finalizedState.status === "ended") {
                 io.to(gameId).emit(GameEvents.GAME_ENDED, finalizedState);
               } else {
-                io.to(gameId).emit(GameEvents.UPDATE_GAME_STATE, finalizedState);
+                io.to(gameId).emit(
+                  GameEvents.UPDATE_GAME_STATE,
+                  finalizedState
+                );
               }
             }
           }
 
           // Check for turn timeouts
-          const currentPlayer = gameState.players.find(p => p.id === gameState.playerIdTurn);
+          const currentPlayer = gameState.players.find(
+            p => p.id === gameState.playerIdTurn
+          );
           if (currentPlayer?.hasLeftGame && currentPlayer.turnTimeoutStart) {
             const elapsed = Date.now() - currentPlayer.turnTimeoutStart;
-            if (elapsed >= 30000) { // 30 seconds
-              logger.info(`[WS]: Turn timeout expired for player ${currentPlayer.id} in game ${gameId}. Executing random action.`);
+            if (elapsed >= 30000) {
+              // 30 seconds
+              logger.info(
+                `[WS]: Turn timeout expired for player ${currentPlayer.id} in game ${gameId}. Executing random action.`
+              );
 
               // Choose random action for disconnected player
-              const randomActions = [PlayerAction.FISH, PlayerAction.COLLECT_WATER, PlayerAction.COLLECT_WOOD];
-              const randomAction = randomActions[Math.floor(Math.random() * randomActions.length)];
+              const randomActions = [
+                PlayerAction.FISH,
+                PlayerAction.COLLECT_WATER,
+                PlayerAction.COLLECT_WOOD,
+              ];
+              const randomAction =
+                randomActions[Math.floor(Math.random() * randomActions.length)];
 
-              logger.info(`[WS]: Executing ${randomAction} for disconnected player ${currentPlayer.id}`);
+              logger.info(
+                `[WS]: Executing ${randomAction} for disconnected player ${currentPlayer.id}`
+              );
 
               // Execute the random action
               let updatedGameState = gameState;
@@ -294,9 +323,14 @@ export const initializeWebSocket = () => {
                   randomAction,
                   {} // No additional data needed for these actions
                 );
-                logger.info(`[WS]: Successfully executed ${randomAction} for player ${currentPlayer.id}`);
+                logger.info(
+                  `[WS]: Successfully executed ${randomAction} for player ${currentPlayer.id}`
+                );
               } catch (actionError) {
-                logger.error(`[WS]: Failed to execute ${randomAction} for player ${currentPlayer.id}:`, actionError);
+                logger.error(
+                  `[WS]: Failed to execute ${randomAction} for player ${currentPlayer.id}:`,
+                  actionError
+                );
                 // Continue with turn advancement even if action fails
               }
 
@@ -305,22 +339,31 @@ export const initializeWebSocket = () => {
 
               // Update player timeout count
               let updatedPlayers = updatedGameState.players.map(p =>
-                p.id === currentPlayer.id ? {
-                  ...p,
-                  turnTimeouts: newTimeoutCount,
-                  turnTimeoutStart: undefined // Clear timeout start
-                } : p
+                p.id === currentPlayer.id
+                  ? {
+                      ...p,
+                      turnTimeouts: newTimeoutCount,
+                      turnTimeoutStart: undefined, // Clear timeout start
+                    }
+                  : p
               );
 
               // Advance to next player (skip players with 2+ timeouts)
-              const nextPlayerId = getNextPlayerTurn({ ...updatedGameState, players: updatedPlayers });
+              const nextPlayerId = getNextPlayerTurn({
+                ...updatedGameState,
+                players: updatedPlayers,
+              });
 
               // If next player has left the game, start their timeout immediately
               if (nextPlayerId !== updatedGameState.playerIdTurn) {
-                const nextPlayer = updatedPlayers.find(p => p.id === nextPlayerId);
+                const nextPlayer = updatedPlayers.find(
+                  p => p.id === nextPlayerId
+                );
                 if (nextPlayer?.hasLeftGame) {
                   updatedPlayers = updatedPlayers.map(p =>
-                    p.id === nextPlayerId ? { ...p, turnTimeoutStart: Date.now() } : p
+                    p.id === nextPlayerId
+                      ? { ...p, turnTimeoutStart: Date.now() }
+                      : p
                   );
                 }
               }
@@ -328,7 +371,7 @@ export const initializeWebSocket = () => {
               const finalState = {
                 ...updatedGameState,
                 players: updatedPlayers,
-                playerIdTurn: nextPlayerId
+                playerIdTurn: nextPlayerId,
               };
 
               await setGameState(gameId, finalState);
@@ -337,19 +380,22 @@ export const initializeWebSocket = () => {
               io.to(gameId).emit(GameEvents.TURN_TIMEOUT, {
                 playerId: currentPlayer.id,
                 timeoutCount: newTimeoutCount,
-                actionPerformed: randomAction
+                actionPerformed: randomAction,
               });
               io.to(gameId).emit(GameEvents.UPDATE_GAME_STATE, finalState);
 
               // Notify the new current player
               io.to(nextPlayerId).emit(GameEvents.YOUR_TURN);
 
-              logger.info(`[WS]: Turn completed with ${randomAction} and advanced from ${currentPlayer.id} to ${nextPlayerId}`);
+              logger.info(
+                `[WS]: Turn completed with ${randomAction} and advanced from ${currentPlayer.id} to ${nextPlayerId}`
+              );
             }
           }
         }
       } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : "Unknown error";
+        const errorMessage =
+          error instanceof Error ? error.message : "Unknown error";
         logger.error("[WS]: Error in timer checks", errorMessage);
       }
     }, 1000); // Check every second
@@ -379,7 +425,31 @@ export const initializeWebSocket = () => {
 
       socket.on(
         GameEvents.JOIN_GAME,
-        async ({ gameId, playerId, playerName }) => {
+        async ({ gameId, playerId, playerName, sessionToken }) => {
+          logger.info(
+            `[WS]: Received JOIN_GAME from ${playerName} (ID: ${playerId}) for game ${gameId}`
+          );
+          // Validate session token
+          const sessionData = await validateSession(sessionToken);
+
+          if (!sessionData) {
+            logger.warn(`[WS]: Unauthorized join attempt for game ${gameId}`);
+            socket.emit("error", {
+              message:
+                "Session invalide ou expirée. Veuillez vous reconnecter.",
+            });
+            return;
+          }
+
+          // Verify the playerId matches the session
+          if (sessionData.playerId !== playerId) {
+            logger.warn(
+              `[WS]: PlayerId mismatch for ${playerName}. Session: ${sessionData.playerId}, Provided: ${playerId}`
+            );
+            socket.emit("error", { message: "Identifiant de joueur invalide" });
+            return;
+          }
+
           if (joiningPlayers.has(playerId)) {
             return;
           }
@@ -389,6 +459,7 @@ export const initializeWebSocket = () => {
           try {
             logger.info(`[WS]: ${playerName} a rejoint le jeu ${gameId}`);
             socket.join(gameId);
+            io.to(socket.id).emit("JOIN_CONFIRMED", { gameId });
 
             let gameState = await getGameState(gameId);
 
@@ -397,16 +468,22 @@ export const initializeWebSocket = () => {
             if (!gameState) {
               // Create gameState first
               gameState = await createGameState(gameId);
-              
+
               // Sync players from database if available
               if (gameSettings?.players && gameSettings.players.length > 0) {
-                gameState = syncPlayersFromDatabase(gameState, gameSettings.players);
+                gameState = syncPlayersFromDatabase(
+                  gameState,
+                  gameSettings.players
+                );
                 await setGameState(gameId, gameState);
               }
             } else {
               // Sync players from database to ensure names are up to date
               if (gameSettings?.players && gameSettings.players.length > 0) {
-                gameState = syncPlayersFromDatabase(gameState, gameSettings.players);
+                gameState = syncPlayersFromDatabase(
+                  gameState,
+                  gameSettings.players
+                );
                 // Deduplicate players before saving
                 gameState = deduplicatePlayers(gameState);
                 await setGameState(gameId, gameState);
@@ -423,7 +500,10 @@ export const initializeWebSocket = () => {
 
             // If player is not in database, add them to database first
             if (!isPlayerInDatabase) {
-              if (gameState.status !== GameStatus.CREATED && gameState.status !== GameStatus.ENDED) {
+              if (
+                gameState.status !== GameStatus.CREATED &&
+                gameState.status !== GameStatus.ENDED
+              ) {
                 joiningPlayers.delete(playerId);
                 io.to(socket.id).emit("error", {
                   message:
@@ -436,22 +516,26 @@ export const initializeWebSocket = () => {
               await joinGameService(gameId, {
                 id: playerId,
                 name: playerName,
-                status: PlayerState.NORMAL,
-                voteCount: 1,
-                objects: [],
               });
 
               // Refresh gameSettings after adding player
               const updatedGameSettings = await Game.findById(gameId);
               if (updatedGameSettings?.players) {
-                gameState = syncPlayersFromDatabase(gameState, updatedGameSettings.players);
+                gameState = syncPlayersFromDatabase(
+                  gameState,
+                  updatedGameSettings.players
+                );
               }
             }
 
             // If player is not in gameState, add them to gameState
             // This handles cases where player is in database but not in gameState (e.g., lobby owner opening new tab)
             // Also allow for finished games so players can view final statistics
-            if (!isPlayerInGameState && (gameState.status === GameStatus.CREATED || gameState.status === GameStatus.ENDED)) {
+            if (
+              !isPlayerInGameState &&
+              (gameState.status === GameStatus.CREATED ||
+                gameState.status === GameStatus.ENDED)
+            ) {
               // Get player name from database if available
               const dbPlayer = gameSettings?.players?.find(
                 (p: IPlayer) => p.user.id === playerId
@@ -500,15 +584,16 @@ export const initializeWebSocket = () => {
             // Emit PLAYER_ONLINE to all players in the game
             io.to(gameId).emit(GameEvents.PLAYER_ONLINE, { playerId });
 
-            // Send updated gameState to the client who just joined
+            // Send updated gameState to ALL players in the game room
             gameState = await getGameState(gameId);
             if (gameState) {
               // Ensure deduplication before sending
               gameState = deduplicatePlayers(gameState);
-              io.to(socket.id).emit(GameEvents.UPDATE_GAME_STATE, gameState);
+              io.to(gameId).emit(GameEvents.UPDATE_GAME_STATE, gameState);
             }
           } catch (error: unknown) {
-            const errorMessage = error instanceof Error ? error.message : "Unknown error";
+            const errorMessage =
+              error instanceof Error ? error.message : "Unknown error";
             logger.error("[WS]: Error joining game", errorMessage);
             io.to(socket.id).emit("error", {
               message: "Impossible de rejoindre le jeu",
@@ -519,28 +604,55 @@ export const initializeWebSocket = () => {
         }
       );
 
-      socket.on(GameEvents.LEAVE_GAME, async ({ gameId, playerId }) => {
-        try {
-          logger.info(`[WS]: ${playerId} demande à quitter le jeu ${gameId}`);
+      socket.on(
+        GameEvents.LEAVE_GAME,
+        async ({ gameId, playerId, sessionToken }) => {
+          try {
+            // Validate session token
+            const sessionData = await validateSession(sessionToken);
 
-          // Leave the socket room first
-          socket.leave(gameId);
+            if (!sessionData || sessionData.playerId !== playerId) {
+              logger.warn(
+                `[WS]: Unauthorized leave attempt for game ${gameId}`
+              );
+              socket.emit("error", { message: "Session invalide" });
+              return;
+            }
 
-          // Clean up tracking maps
-          socketToGameId.delete(socket.id);
+            logger.info(`[WS]: ${playerId} demande à quitter le jeu ${gameId}`);
 
-          // Call leaveGameService which handles all the logic (host transfer, cleanup, etc.)
-          await leaveGameService(gameId, playerId);
+            // Leave the socket room first
+            socket.leave(gameId);
 
-          logger.info(`[WS]: ${playerId} a quitté le jeu ${gameId}`);
-        } catch (error: unknown) {
-          const errorMessage = error instanceof Error ? error.message : "Unknown error";
-          logger.error("[WS]: Error leaving game", errorMessage);
-          io.to(socket.id).emit("error", {
-            message: "Impossible de quitter le jeu",
-          });
+            // Clean up tracking maps
+            socketToGameId.delete(socket.id);
+
+            // Call leaveGameService which handles all the logic (host transfer, cleanup, etc.)
+            await leaveGameService(gameId, playerId);
+
+            // Notify all remaining players in the room that someone left
+            const roomSockets =
+              io.sockets.adapter.rooms.get(gameId) || new Set();
+            const roomSocketIds = Array.from(roomSockets);
+            io.to(gameId).emit(GameEvents.PLAYER_LEFT, { playerId });
+
+            // Also emit UPDATE_GAME_STATE to refresh the game state for all players
+            const gameState = await getGameState(gameId);
+            if (gameState) {
+              io.to(gameId).emit(GameEvents.UPDATE_GAME_STATE, gameState);
+            }
+
+            logger.info(`[WS]: ${playerId} a quitté le jeu ${gameId}`);
+          } catch (error: unknown) {
+            const errorMessage =
+              error instanceof Error ? error.message : "Unknown error";
+            logger.error("[WS]: Error leaving game", errorMessage);
+            io.to(socket.id).emit("error", {
+              message: "Impossible de quitter le jeu",
+            });
+          }
         }
-      });
+      );
 
       socket.on("RESET_GAME", async ({ gameId }) => {
         try {
@@ -555,19 +667,22 @@ export const initializeWebSocket = () => {
 
           // Reset game state to lobby
           const resetState = await resetGameToLobby(gameState);
-          
+
           // Update database status to "created"
           await resetGameToLobbyService(gameId);
-          
+
           // Emit event to all players to redirect to lobby
           io.to(gameId).emit(GameEvents.GAME_RESET_TO_LOBBY, {
             gameId,
             gameState: resetState,
           });
-          
-          logger.info(`[WS]: Jeu ${gameId} réinitialisé, tous les joueurs retournent au lobby`);
+
+          logger.info(
+            `[WS]: Jeu ${gameId} réinitialisé, tous les joueurs retournent au lobby`
+          );
         } catch (error: unknown) {
-          const errorMessage = error instanceof Error ? error.message : "Unknown error";
+          const errorMessage =
+            error instanceof Error ? error.message : "Unknown error";
           logger.error("[WS]: Error resetting game to lobby", errorMessage);
           io.to(socket.id).emit("error", {
             message: "Impossible de réinitialiser le jeu",
@@ -589,7 +704,8 @@ export const initializeWebSocket = () => {
           logger.info(`[WS]: Lancement de la partie ${gameId}`);
           io.to(gameId).emit(GameEvents.GAME_STARTED, gameState);
         } catch (error: unknown) {
-          const errorMessage = error instanceof Error ? error.message : "Unknown error";
+          const errorMessage =
+            error instanceof Error ? error.message : "Unknown error";
           logger.error("[WS]: Error starting game", errorMessage);
           io.to(socket.id).emit("error", {
             message: "Impossible de démarrer la partie",
@@ -599,8 +715,19 @@ export const initializeWebSocket = () => {
 
       socket.on(
         GameEvents.PLAYER_ACTION,
-        async ({ gameId, playerId, action_type, data }) => {
+        async ({ gameId, playerId, action_type, data, sessionToken }) => {
           try {
+            // Validate session token
+            const sessionData = await validateSession(sessionToken);
+
+            if (!sessionData || sessionData.playerId !== playerId) {
+              logger.warn(
+                `[WS]: Unauthorized action attempt by ${playerId} in game ${gameId}`
+              );
+              socket.emit("error", { message: "Session invalide" });
+              return;
+            }
+
             let gameState = await getGameState(gameId);
 
             if (!gameState) {
@@ -633,18 +760,18 @@ export const initializeWebSocket = () => {
             // Check if the player can perform the action
             // USE_OBJECT can be used anytime (except if player is sick, unless voting)
             // Other actions can only be used during player's turn (unless voting)
-            const isActionAllowed = 
-              action_type === PlayerAction.USE_OBJECT 
-                ? (!isPlayerSick || isVotingActive) // Can use objects unless sick (unless during vote)
-                : (isPlayerTurn && !isVotingActive && !isPlayerSick); // Other actions only during turn, not sick, not voting
+            const isActionAllowed =
+              action_type === PlayerAction.USE_OBJECT
+                ? !isPlayerSick || isVotingActive // Can use objects unless sick (unless during vote)
+                : isPlayerTurn && !isVotingActive && !isPlayerSick; // Other actions only during turn, not sick, not voting
 
             if (!isActionAllowed) {
               io.to(socket.id).emit("error", {
-                message: isPlayerSick 
+                message: isPlayerSick
                   ? "Vous êtes malade et ne pouvez pas effectuer d'action (sauf pour vous sauver lors d'un vote)"
                   : !isPlayerTurn && action_type !== PlayerAction.USE_OBJECT
-                  ? "Ce n'est pas votre tour"
-                  : "Action non autorisée dans cette phase",
+                    ? "Ce n'est pas votre tour"
+                    : "Action non autorisée dans cette phase",
               });
               return;
             }
@@ -663,7 +790,11 @@ export const initializeWebSocket = () => {
             );
 
             // If the action was taken during the player's turn, run the game loop
-            if (isPlayerTurn && !isVotingActive && action_type !== PlayerAction.USE_OBJECT) {
+            if (
+              isPlayerTurn &&
+              !isVotingActive &&
+              action_type !== PlayerAction.USE_OBJECT
+            ) {
               gameState = await handleGameLoop(gameState);
             }
 
@@ -674,16 +805,22 @@ export const initializeWebSocket = () => {
               io.to(gameState.playerIdTurn).emit(GameEvents.YOUR_TURN);
 
               // Check if the current player has left the game and start turn timeout tracking
-              const currentPlayer = gameState.players.find(p => p.id === gameState.playerIdTurn);
+              const currentPlayer = gameState.players.find(
+                p => p.id === gameState.playerIdTurn
+              );
               if (currentPlayer?.hasLeftGame) {
                 // Mark when this player's turn timeout started
                 const updatedPlayers = gameState.players.map(p =>
-                  p.id === gameState.playerIdTurn ? { ...p, turnTimeoutStart: Date.now() } : p
+                  p.id === gameState.playerIdTurn
+                    ? { ...p, turnTimeoutStart: Date.now() }
+                    : p
                 );
                 gameState.players = updatedPlayers;
                 await setGameState(gameId, gameState);
 
-                logger.info(`[WS]: Started turn timeout tracking for disconnected player ${gameState.playerIdTurn}`);
+                logger.info(
+                  `[WS]: Started turn timeout tracking for disconnected player ${gameState.playerIdTurn}`
+                );
               }
             }
 
@@ -693,7 +830,8 @@ export const initializeWebSocket = () => {
               action_type,
             });
           } catch (error: unknown) {
-            const errorMessage = error instanceof Error ? error.message : "Unknown error";
+            const errorMessage =
+              error instanceof Error ? error.message : "Unknown error";
             logger.error("[WS]: Error processing action", errorMessage);
             io.to(socket.id).emit("error", {
               message: "Impossible de traiter l'action",
@@ -704,8 +842,19 @@ export const initializeWebSocket = () => {
 
       socket.on(
         GameEvents.VOTE,
-        async ({ gameId, playerId, targetPlayerId }) => {
+        async ({ gameId, playerId, targetPlayerId, sessionToken }) => {
           try {
+            // Validate session token
+            const sessionData = await validateSession(sessionToken);
+
+            if (!sessionData || sessionData.playerId !== playerId) {
+              logger.warn(
+                `[WS]: Unauthorized vote attempt by ${playerId} in game ${gameId}`
+              );
+              socket.emit("error", { message: "Session invalide" });
+              return;
+            }
+
             let gameState = await getGameState(gameId);
             if (!gameState) {
               io.to(socket.id).emit("error", {
@@ -740,7 +889,8 @@ export const initializeWebSocket = () => {
               io.to(gameId).emit(GameEvents.VOTE, { playerId, targetPlayerId });
             }
           } catch (error: unknown) {
-            const errorMessage = error instanceof Error ? error.message : "Unknown error";
+            const errorMessage =
+              error instanceof Error ? error.message : "Unknown error";
             logger.error("[WS]: Error voting", errorMessage);
             io.to(socket.id).emit("error", {
               message: "Impossible de voter",
@@ -750,12 +900,14 @@ export const initializeWebSocket = () => {
       );
 
       // Gestion de la déconnexion d'un client (joueur)
-      socket.on("disconnect", async (reason) => {
+      socket.on("disconnect", async reason => {
         // Remove player tracking for this socket
         const playerId = socketToPlayerId.get(socket.id);
         const gameId = socketToGameId.get(socket.id);
 
-        logger.info(`[WS]: Player disconnected - socket: ${socket.id}, reason: ${reason}, playerId: ${playerId}, gameId: ${gameId}`);
+        logger.info(
+          `[WS]: Player disconnected - socket: ${socket.id}, reason: ${reason}, playerId: ${playerId}, gameId: ${gameId}`
+        );
 
         if (playerId) {
           socketToPlayerId.delete(socket.id);
@@ -772,7 +924,8 @@ export const initializeWebSocket = () => {
               // We need to find sockets that are connected to this game but not the disconnecting socket
               const activeSockets = new Set<string>();
               for (const [socketId] of socketToPlayerId.entries()) {
-                if (socketId !== socket.id) { // Exclude the disconnecting socket
+                if (socketId !== socket.id) {
+                  // Exclude the disconnecting socket
                   const playerGameId = socketToGameId.get(socketId);
                   if (playerGameId === gameId) {
                     activeSockets.add(socketId);
@@ -780,18 +933,22 @@ export const initializeWebSocket = () => {
                 }
               }
 
-              logger.info(`[WS]: Found ${activeSockets.size} active sockets in game ${gameId}: ${Array.from(activeSockets).join(', ')}`);
+              logger.info(
+                `[WS]: Found ${activeSockets.size} active sockets in game ${gameId}: ${Array.from(activeSockets).join(", ")}`
+              );
 
               // Emit PLAYER_OFFLINE to all active sockets in the game
               activeSockets.forEach(socketId => {
                 io.to(socketId).emit(GameEvents.PLAYER_OFFLINE, {
                   playerId,
-                  offlineTimestamp: Date.now()
+                  offlineTimestamp: Date.now(),
                 });
                 logger.info(`[WS]: Sent PLAYER_OFFLINE to socket ${socketId}`);
               });
 
-              logger.info(`[WS]: PLAYER_OFFLINE event sent to ${activeSockets.size} active players in game ${gameId}`);
+              logger.info(
+                `[WS]: PLAYER_OFFLINE event sent to ${activeSockets.size} active players in game ${gameId}`
+              );
 
               // Mark player as offline and start 30-second grace timer
               // Player will be automatically removed if they don't reconnect
@@ -799,30 +956,38 @@ export const initializeWebSocket = () => {
               startGraceTimer(gameId, playerId, 30000, async () => {
                 // Grace period expired - mark player as having left the game
                 try {
-                  logger.info(`Grace period expired for player ${playerId} in game ${gameId}. Marking as left.`);
+                  logger.info(
+                    `Grace period expired for player ${playerId} in game ${gameId}. Marking as left.`
+                  );
 
                   // Update game state to mark player as having left
                   const gameState = await getGameState(gameId);
                   if (gameState) {
                     // Mark player as having left the game
                     const updatedPlayers = gameState.players.map(player =>
-                      player.id === playerId ? { ...player, hasLeftGame: true } : player
+                      player.id === playerId
+                        ? { ...player, hasLeftGame: true }
+                        : player
                     );
 
                     const updatedState = {
                       ...gameState,
-                      players: updatedPlayers
+                      players: updatedPlayers,
                     };
 
                     await setGameState(gameId, updatedState);
 
                     // Emit PLAYER_LEFT_GAME event
-                    io.to(gameId).emit(GameEvents.PLAYER_LEFT_GAME, { playerId });
-                    logger.info(`[WS]: Emitted PLAYER_LEFT_GAME for player ${playerId} in game ${gameId}`);
+                    io.to(gameId).emit(GameEvents.PLAYER_LEFT_GAME, {
+                      playerId,
+                    });
                   }
                 } catch (error: unknown) {
-                  const errorMessage = error instanceof Error ? error.message : "Unknown error";
-                  logger.error(`Error marking player ${playerId} as left in game ${gameId}: ${errorMessage}`);
+                  const errorMessage =
+                    error instanceof Error ? error.message : "Unknown error";
+                  logger.error(
+                    `Error marking player ${playerId} as left in game ${gameId}: ${errorMessage}`
+                  );
                 }
               });
 
@@ -843,7 +1008,8 @@ export const initializeWebSocket = () => {
 
     return io;
   } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
     logger.error("[WS]: Error initializing WebSocket", errorMessage);
     return undefined;
   }
