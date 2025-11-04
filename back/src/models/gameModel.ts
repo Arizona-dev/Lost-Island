@@ -1,5 +1,5 @@
 import { Schema, model } from "mongoose";
-import { IGame, IUser, IPlayer, IWeatherDay } from "../types/types";
+import { IGame, IPlayer, IWeatherDay } from "../types/types";
 
 const PlayerSchema = new Schema<IPlayer>(
   {

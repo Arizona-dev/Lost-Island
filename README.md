@@ -50,6 +50,64 @@ Sirkonia/
 - **MongoDB** (local or cloud instance)
 - **Redis** (for game state management)
 
+## 🧪 Testing
+
+### Test Structure
+
+The project includes comprehensive tests for both backend and frontend:
+
+```
+Sirkonia/
+├── back/tests/               # Backend tests (Jest)
+│   ├── websocket/            # Socket event tests
+│   ├── game/                 # Game logic tests
+│   └── integration/          # End-to-end flows
+├── front/src/test/           # Frontend tests (Vitest)
+│   └── components/           # React component tests
+└── test-all.sh              # Unified test runner
+```
+
+### Running Tests
+
+#### All Tests (Recommended)
+```bash
+# Run both backend and frontend tests
+chmod +x test-all.sh
+./test-all.sh
+```
+
+#### Backend Only
+```bash
+cd back
+npm test                    # Run all tests
+npm run test:watch         # Watch mode
+npm run test:coverage      # With coverage report
+```
+
+#### Frontend Only
+```bash
+cd front
+npm test                   # Run all tests
+npm run test:ui           # Interactive UI
+npm run test:coverage     # With coverage report
+```
+
+### Test Coverage
+
+The test suite covers:
+
+#### Backend Tests
+- ✅ **Socket Events**: PLAYER_OFFLINE, TURN_TIMEOUT, presence management
+- ✅ **Game Logic**: Player actions, turn management, state transitions
+- ✅ **Presence System**: Online/offline tracking, grace periods
+- ✅ **Integration**: Complete disconnect-to-reconnect flows
+
+#### Frontend Tests
+- ✅ **Component Logic**: Socket event handling, state management
+- ✅ **UI Indicators**: Online/offline status, host crowns, timers
+- ✅ **Event Processing**: TURN_TIMEOUT, presence updates
+- ✅ **State Preservation**: Data integrity across updates
+
 ## 🚀 Quick Start
 
 ### 1. Clone the Repository

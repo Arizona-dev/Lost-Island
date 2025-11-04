@@ -9,11 +9,17 @@ export type GameEvent =
   | ["JOIN_GAME", { gameId: string; playerId: string; playerName: string }]
   | ["PLAYER_JOINED", { playerId: string; playerName: string }]
   | ["PLAYER_LEFT", { playerId: string }]
+  | ["PLAYER_OFFLINE", { playerId: string; offlineTimestamp: number }]
+  | ["PLAYER_LEFT_GAME", { playerId: string }] // Player completely left after grace period
+  | ["PLAYER_ONLINE", { playerId: string }]
   | ["GAME_STARTED", {}]
   | ["GAME_ENDED", {}]
+  | ["HOST_CHANGED", { newHostId: string; newHostName: string }]
+  | ["LOBBY_CLOSED", { gameId: string }]
   | ["YOUR_TURN", {}]
   | ["TURN_STARTED", { playerId: string }]
   | ["TURN_ENDED", { playerId: string }]
+  | ["TURN_TIMEOUT", { playerId: string; timeoutCount: number }]
   | ["PLAYER_ACTION", { playerId: string; action: PlayerAction }]
   | ["ACTION_PROCESSED", { playerId: string }]
   | ["VOTE", { playerId: string; targetPlayerId: string }];
@@ -23,13 +29,20 @@ export enum GameEvents {
   LEAVE_GAME = "LEAVE_GAME",
   PLAYER_JOINED = "PLAYER_JOINED",
   PLAYER_LEFT = "PLAYER_LEFT",
+  PLAYER_OFFLINE = "PLAYER_OFFLINE",
+  PLAYER_LEFT_GAME = "PLAYER_LEFT_GAME",
+  PLAYER_ONLINE = "PLAYER_ONLINE",
+  START_GAME = "START_GAME",
   GAME_STARTED = "GAME_STARTED",
   GAME_ENDED = "GAME_ENDED",
+  HOST_CHANGED = "HOST_CHANGED",
+  LOBBY_CLOSED = "LOBBY_CLOSED",
   GAME_RESET_TO_LOBBY = "GAME_RESET_TO_LOBBY",
   UPDATE_GAME_STATE = "UPDATE_GAME_STATE",
   YOUR_TURN = "YOUR_TURN",
   TURN_STARTED = "TURN_STARTED",
   TURN_ENDED = "TURN_ENDED",
+  TURN_TIMEOUT = "TURN_TIMEOUT",
   PLAYER_ACTION = "PLAYER_ACTION",
   ACTION_PROCESSED = "ACTION_PROCESSED",
   VOTE = "VOTE",
@@ -42,19 +55,33 @@ export const handleGameEvent = (event: GameEvent) => {
       return `Player ${event[1].playerId} joined the game`;
     case GameEvents.PLAYER_LEFT:
       return `Player ${event[1].playerId} left the game`;
+    case GameEvents.PLAYER_OFFLINE:
+      return `Player ${event[1].playerId} went offline`;
+    case GameEvents.PLAYER_LEFT_GAME:
+      return `Player ${event[1].playerId} has left the game after grace period`;
+    case GameEvents.PLAYER_ONLINE:
+      return `Player ${event[1].playerId} came back online`;
     case GameEvents.GAME_STARTED:
       return "Game started";
     case GameEvents.GAME_ENDED:
       return "Game ended";
+    case GameEvents.HOST_CHANGED:
+      return `Host changed to ${event[1].newHostName}`;
+    case GameEvents.LOBBY_CLOSED:
+      return `Lobby ${event[1].gameId} was closed`;
     case GameEvents.TURN_STARTED:
       return `Player ${event[1].playerId}'s turn`;
     case GameEvents.TURN_ENDED:
       return `Player ${event[1].playerId}'s turn ended`;
+    case GameEvents.TURN_TIMEOUT:
+      return `Player ${event[1].playerId} timed out (timeout ${event[1].timeoutCount})`;
     case GameEvents.PLAYER_ACTION:
       return `Player ${event[1].playerId} performed an action`;
     case GameEvents.ACTION_PROCESSED:
       return `Player ${event[1].playerId}'s action processed`;
     case GameEvents.VOTE:
       return `Player ${event[1].playerId} voted for player ${event[1].targetPlayerId}`;
+    default:
+      return `Unknown event: ${event[0]}`;
   }
 };

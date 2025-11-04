@@ -22,6 +22,11 @@ export type Player = {
   voteCount: number;
   status: PlayerState;
   objects: WreckageObject[];
+  isOnline?: boolean; // Presence status - defaults to true if not specified
+  offlineTimestamp?: number; // Timestamp when player went offline (for timer)
+  hasLeftGame?: boolean; // Whether player has completely left after grace period
+  turnTimeouts?: number; // Number of times player timed out during their turn
+  turnTimeoutStart?: number; // Timestamp when current turn timeout started
 };
 
 export const shufflePlayers = (players: Player[]): Player[] => {

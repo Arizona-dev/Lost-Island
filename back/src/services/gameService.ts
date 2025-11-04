@@ -3,6 +3,7 @@ import {
   setGameState,
   startGame,
   createGameState,
+  removePlayerFromGame,
 } from "../game/Game";
 import { Player } from "../game/Player";
 import { Game } from "../models/gameModel";
@@ -85,7 +86,12 @@ export const joinGameService = async (
   await game.save();
 };
 
-// Leave a game
+/**
+ * Leave a game - handles complete player removal workflow
+ * @param id - Game ID
+ * @param playerId - Player ID leaving the game
+ * @throws Error if game not found
+ */
 export const leaveGameService = async (
   id: string,
   playerId: string
@@ -96,8 +102,77 @@ export const leaveGameService = async (
     throw new Error("Game not found");
   }
 
+  // Remove player from database
   game.players = game.players?.filter(p => p?.user?.id !== playerId);
   await game.save();
+
+  // Remove player from Redis game state
+  await removePlayerFromGame(id, playerId);
+
+  // Check if host left
+  if (game.partyOwner.id === playerId) {
+    await assignNewHost(game);
+  }
+
+  // If no players remain, clean up the game
+  if (!game.players || game.players.length === 0) {
+    await deleteGameAndState(id, game.status === "started");
+  }
+};
+
+/**
+ * Assign a new host from remaining players
+ * @param game - Game document from database
+ * @returns Updated game with new host
+ * @throws Error if no players remain
+ */
+const assignNewHost = async (game: IGame): Promise<IGame> => {
+  if (!game.players || game.players.length === 0) {
+    throw new Error("Cannot assign new host: no players remaining");
+  }
+
+  // Assign the first remaining player as host
+  const newHost = game.players[0];
+  game.partyOwner = { id: newHost.user.id, name: newHost.user.name };
+  await game.save();
+
+  // Emit HOST_CHANGED event
+  const io = getIO();
+  io.to(game.id).emit(GameEvents.HOST_CHANGED, {
+    newHostId: newHost.user.id,
+    newHostName: newHost.user.name
+  });
+
+  return game;
+};
+
+/**
+ * Delete game from database and Redis state, emit appropriate event
+ * @param id - Game ID to delete
+ * @param wasStarted - Whether the game was started (affects cleanup event type)
+ */
+const deleteGameAndState = async (id: string, wasStarted: boolean): Promise<void> => {
+  try {
+    // Delete from database
+    await Game.findByIdAndDelete(id);
+
+    // Delete Redis state if it exists
+    const { Redis } = require("ioredis");
+    const redis = new Redis();
+    await redis.del(`game:${id}`);
+
+    // Emit appropriate event
+    const io = getIO();
+    const eventType = wasStarted ? GameEvents.GAME_ENDED : GameEvents.LOBBY_CLOSED;
+    io.to(id).emit(eventType, { gameId: id });
+
+    // Clean up the socket room
+    io.socketsLeave(id);
+
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    throw new Error(`Error deleting game and state: ${errorMessage}`);
+  }
 };
 
 // Start a game

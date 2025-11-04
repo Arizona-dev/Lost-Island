@@ -182,6 +182,7 @@ import {
   GameStatus,
   createGameState,
   getGameState,
+  getNextPlayerTurn,
   isPlayerInGame,
   joinGame,
   resetGameToLobby,
@@ -197,6 +198,17 @@ import {
   handlePlayerVote,
   finalizeVote,
 } from "../game/Player";
+/**
+ * WebSocket Handlers with Presence Management
+ *
+ * This module handles real-time game communication and player presence.
+ * Key features:
+ * - Player presence tracking with 60-second grace periods for reconnections
+ * - Automatic host transfer when host leaves
+ * - Game cleanup for empty lobbies
+ * - Safe turn management during player removal
+ */
+
 import { leaveGameService, joinGameService, resetGameToLobbyService } from "../services/gameService";
 import { Game } from "../models/gameModel";
 import { getIO } from "../server";
@@ -204,8 +216,12 @@ import { IPlayer } from "../types/types";
 import { handleGameLoop } from "../game/GameLoop";
 import logger from "../utils/logger";
 import { Redis } from "ioredis";
+import { markOnline, markOffline, startGraceTimer, clearGraceTimer } from "../services/presenceService";
 
 const redis = new Redis();
+
+// Store active intervals for cleanup
+const activeIntervals = new Set<NodeJS.Timeout>();
 
 export const initializeWebSocket = () => {
   try {
@@ -216,32 +232,35 @@ export const initializeWebSocket = () => {
     const socketToPlayerId = new Map<string, string>();
     // Map to track how many sockets each playerId has
     const playerIdToSocketCount = new Map<string, number>();
+    // Map to track socket.id -> gameId for presence management
+    const socketToGameId = new Map<string, string>();
 
     // Helper function to get unique online players count
     const getUniqueOnlinePlayersCount = (): number => {
       return playerIdToSocketCount.size;
     };
 
-    // Timer to check for expired votes every second
-    setInterval(async () => {
+    // Timer to check for expired votes and turn timeouts every second
+    const intervalId = setInterval(async () => {
       try {
-        // Get all active games from Redis (we'll need to track active games)
-        // For now, we'll check games that have active votes
-        // This is a simplified approach - in production you might want to track active games differently
+        // Get all active games from Redis
         const allGameKeys = await redis.keys("game:*");
-        
+
         for (const key of allGameKeys) {
           const gameId = key.replace("game:", "");
           const gameState = await getGameState(gameId);
-          
-          if (gameState && gameState.isVotingActive && gameState.voteStartTime && gameState.voteDuration) {
+
+          if (!gameState) continue;
+
+          // Check for expired votes
+          if (gameState.isVotingActive && gameState.voteStartTime && gameState.voteDuration) {
             const elapsed = (Date.now() - gameState.voteStartTime) / 1000; // seconds
             if (elapsed >= gameState.voteDuration) {
               // Timer expired - finalize the vote
               logger.info(`[WS]: Timer expired for vote in game ${gameId}`);
               const finalizedState = finalizeVote(gameState);
               await setGameState(gameId, finalizedState);
-              
+
               // Check if game ended
               if (finalizedState.status === "ended") {
                 io.to(gameId).emit(GameEvents.GAME_ENDED, finalizedState);
@@ -250,12 +269,91 @@ export const initializeWebSocket = () => {
               }
             }
           }
+
+          // Check for turn timeouts
+          const currentPlayer = gameState.players.find(p => p.id === gameState.playerIdTurn);
+          if (currentPlayer?.hasLeftGame && currentPlayer.turnTimeoutStart) {
+            const elapsed = Date.now() - currentPlayer.turnTimeoutStart;
+            if (elapsed >= 30000) { // 30 seconds
+              logger.info(`[WS]: Turn timeout expired for player ${currentPlayer.id} in game ${gameId}. Executing random action.`);
+
+              // Choose random action for disconnected player
+              const randomActions = [PlayerAction.FISH, PlayerAction.COLLECT_WATER, PlayerAction.COLLECT_WOOD];
+              const randomAction = randomActions[Math.floor(Math.random() * randomActions.length)];
+
+              logger.info(`[WS]: Executing ${randomAction} for disconnected player ${currentPlayer.id}`);
+
+              // Execute the random action
+              let updatedGameState = gameState;
+              try {
+                updatedGameState = await handlePlayerAction(
+                  io,
+                  gameId,
+                  currentPlayer.id,
+                  randomAction,
+                  {} // No additional data needed for these actions
+                );
+                logger.info(`[WS]: Successfully executed ${randomAction} for player ${currentPlayer.id}`);
+              } catch (actionError) {
+                logger.error(`[WS]: Failed to execute ${randomAction} for player ${currentPlayer.id}:`, actionError);
+                // Continue with turn advancement even if action fails
+              }
+
+              // Increment timeout count
+              const newTimeoutCount = (currentPlayer.turnTimeouts || 0) + 1;
+
+              // Update player timeout count
+              let updatedPlayers = updatedGameState.players.map(p =>
+                p.id === currentPlayer.id ? {
+                  ...p,
+                  turnTimeouts: newTimeoutCount,
+                  turnTimeoutStart: undefined // Clear timeout start
+                } : p
+              );
+
+              // Advance to next player (skip players with 2+ timeouts)
+              const nextPlayerId = getNextPlayerTurn({ ...updatedGameState, players: updatedPlayers });
+
+              // If next player has left the game, start their timeout immediately
+              if (nextPlayerId !== updatedGameState.playerIdTurn) {
+                const nextPlayer = updatedPlayers.find(p => p.id === nextPlayerId);
+                if (nextPlayer?.hasLeftGame) {
+                  updatedPlayers = updatedPlayers.map(p =>
+                    p.id === nextPlayerId ? { ...p, turnTimeoutStart: Date.now() } : p
+                  );
+                }
+              }
+
+              const finalState = {
+                ...updatedGameState,
+                players: updatedPlayers,
+                playerIdTurn: nextPlayerId
+              };
+
+              await setGameState(gameId, finalState);
+
+              // Emit timeout event and state update
+              io.to(gameId).emit(GameEvents.TURN_TIMEOUT, {
+                playerId: currentPlayer.id,
+                timeoutCount: newTimeoutCount,
+                actionPerformed: randomAction
+              });
+              io.to(gameId).emit(GameEvents.UPDATE_GAME_STATE, finalState);
+
+              // Notify the new current player
+              io.to(nextPlayerId).emit(GameEvents.YOUR_TURN);
+
+              logger.info(`[WS]: Turn completed with ${randomAction} and advanced from ${currentPlayer.id} to ${nextPlayerId}`);
+            }
+          }
         }
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error";
-        logger.error("[WS]: Error in vote timer check", errorMessage);
+        logger.error("[WS]: Error in timer checks", errorMessage);
       }
     }, 1000); // Check every second
+
+    activeIntervals.add(intervalId);
 
     io.on("connection", socket => {
       logger.info(`[WS]: Connecté: ${socket.id}`);
@@ -384,6 +482,7 @@ export const initializeWebSocket = () => {
             // Track player connection for unique count
             if (playerId) {
               socketToPlayerId.set(socket.id, playerId);
+              socketToGameId.set(socket.id, gameId); // Track which game this socket is in
               const currentCount = playerIdToSocketCount.get(playerId) || 0;
               playerIdToSocketCount.set(playerId, currentCount + 1);
 
@@ -391,6 +490,14 @@ export const initializeWebSocket = () => {
               const uniqueCount = getUniqueOnlinePlayersCount();
               io.emit("onlinePlayers", uniqueCount);
             }
+
+            // Presence Management: Mark player as online and clear any grace timer
+            // This handles reconnections within the grace period (60 seconds)
+            await markOnline(gameId, playerId);
+            clearGraceTimer(gameId, playerId);
+
+            // Emit PLAYER_ONLINE to all players in the game
+            io.to(gameId).emit(GameEvents.PLAYER_ONLINE, { playerId });
 
             // Send updated gameState to the client who just joined
             gameState = await getGameState(gameId);
@@ -413,40 +520,18 @@ export const initializeWebSocket = () => {
 
       socket.on(GameEvents.LEAVE_GAME, async ({ gameId, playerId }) => {
         try {
-          const gameState = await getGameState(gameId);
-          if (!gameState) {
-            io.to(socket.id).emit("error", {
-              message: "Impossible de trouver la partie",
-            });
-            return;
-          }
+          logger.info(`[WS]: ${playerId} demande à quitter le jeu ${gameId}`);
 
-          // Allow leaving if game is CREATED or ENDED, but not if it's STARTED
-          if (gameState.status === GameStatus.STARTED) {
-            io.to(socket.id).emit("error", {
-              message:
-                "Impossible de quitter le jeu: la partie a déjà commencé",
-            });
-            return;
-          }
+          // Leave the socket room first
+          socket.leave(gameId);
 
-          if (isPlayerInGame(gameState, playerId)) {
-            gameState.players = gameState.players.filter(
-              (p: any) => p.id !== playerId
-            );
-            await setGameState(gameId, gameState);
-            
-            // Retirer le socket de la room avant d'émettre les événements
-            socket.leave(gameId);
-            
-            io.to(gameId).emit(GameEvents.UPDATE_GAME_STATE, gameState);
-            io.to(gameId).emit(GameEvents.PLAYER_LEFT, { playerId });
+          // Clean up tracking maps
+          socketToGameId.delete(socket.id);
 
-            await leaveGameService(gameId, playerId);
-            logger.info(`[WS]: ${playerId} a quitté le jeu ${gameId}`);
-          } else {
-            logger.debug(`[WS]: ${playerId} n'est pas dans le jeu ${gameId}`);
-          }
+          // Call leaveGameService which handles all the logic (host transfer, cleanup, etc.)
+          await leaveGameService(gameId, playerId);
+
+          logger.info(`[WS]: ${playerId} a quitté le jeu ${gameId}`);
         } catch (error: unknown) {
           const errorMessage = error instanceof Error ? error.message : "Unknown error";
           logger.error("[WS]: Error leaving game", errorMessage);
@@ -586,6 +671,19 @@ export const initializeWebSocket = () => {
             // Notify the next player if it was the current player's turn
             if (isPlayerTurn) {
               io.to(gameState.playerIdTurn).emit(GameEvents.YOUR_TURN);
+
+              // Check if the current player has left the game and start turn timeout tracking
+              const currentPlayer = gameState.players.find(p => p.id === gameState.playerIdTurn);
+              if (currentPlayer?.hasLeftGame) {
+                // Mark when this player's turn timeout started
+                const updatedPlayers = gameState.players.map(p =>
+                  p.id === gameState.playerIdTurn ? { ...p, turnTimeoutStart: Date.now() } : p
+                );
+                gameState.players = updatedPlayers;
+                await setGameState(gameId, gameState);
+
+                logger.info(`[WS]: Started turn timeout tracking for disconnected player ${gameState.playerIdTurn}`);
+              }
             }
 
             // Broadcast the processed action to all players
@@ -651,18 +749,88 @@ export const initializeWebSocket = () => {
       );
 
       // Gestion de la déconnexion d'un client (joueur)
-      socket.on("disconnect", () => {
-        logger.info(`[WS]: Client déconnecté: ${socket.id}`);
+      socket.on("disconnect", async (reason) => {
+        logger.info(`[WS]: DISCONNECT EVENT TRIGGERED: ${socket.id}, reason: ${reason}`);
 
         // Remove player tracking for this socket
         const playerId = socketToPlayerId.get(socket.id);
+        logger.info(`[WS]: Player ID for disconnected socket ${socket.id}: ${playerId}`);
         if (playerId) {
           socketToPlayerId.delete(socket.id);
           const currentCount = playerIdToSocketCount.get(playerId) || 0;
 
           if (currentCount <= 1) {
-            // Last socket for this player, remove from unique count
+            // Last socket for this player - they're now offline
             playerIdToSocketCount.delete(playerId);
+
+            // Presence Management: Handle player disconnection
+            // Get the gameId from our tracking map
+            const gameId = socketToGameId.get(socket.id);
+
+            logger.info(`[WS]: Player ${playerId} disconnected, gameId: ${gameId}`);
+
+            if (gameId) {
+              // Find all OTHER sockets that belong to players in this game
+              // We need to find sockets that are connected to this game but not the disconnecting socket
+              const activeSockets = new Set<string>();
+              for (const [socketId] of socketToPlayerId.entries()) {
+                if (socketId !== socket.id) { // Exclude the disconnecting socket
+                  const playerGameId = socketToGameId.get(socketId);
+                  if (playerGameId === gameId) {
+                    activeSockets.add(socketId);
+                  }
+                }
+              }
+
+              logger.info(`[WS]: Found ${activeSockets.size} active sockets in game ${gameId}: ${Array.from(activeSockets).join(', ')}`);
+
+              // Emit PLAYER_OFFLINE to all active sockets in the game
+              activeSockets.forEach(socketId => {
+                io.to(socketId).emit(GameEvents.PLAYER_OFFLINE, {
+                  playerId,
+                  offlineTimestamp: Date.now()
+                });
+                logger.info(`[WS]: Sent PLAYER_OFFLINE to socket ${socketId}`);
+              });
+
+              logger.info(`[WS]: PLAYER_OFFLINE event sent to ${activeSockets.size} active players in game ${gameId}`);
+
+              // Mark player as offline and start 30-second grace timer
+              // Player will be automatically removed if they don't reconnect
+              await markOffline(gameId, playerId);
+              startGraceTimer(gameId, playerId, 30000, async () => {
+                // Grace period expired - mark player as having left the game
+                try {
+                  logger.info(`Grace period expired for player ${playerId} in game ${gameId}. Marking as left.`);
+
+                  // Update game state to mark player as having left
+                  const gameState = await getGameState(gameId);
+                  if (gameState) {
+                    // Mark player as having left the game
+                    const updatedPlayers = gameState.players.map(player =>
+                      player.id === playerId ? { ...player, hasLeftGame: true } : player
+                    );
+
+                    const updatedState = {
+                      ...gameState,
+                      players: updatedPlayers
+                    };
+
+                    await setGameState(gameId, updatedState);
+
+                    // Emit PLAYER_LEFT_GAME event
+                    io.to(gameId).emit(GameEvents.PLAYER_LEFT_GAME, { playerId });
+                    logger.info(`[WS]: Emitted PLAYER_LEFT_GAME for player ${playerId} in game ${gameId}`);
+                  }
+                } catch (error: unknown) {
+                  const errorMessage = error instanceof Error ? error.message : "Unknown error";
+                  logger.error(`Error marking player ${playerId} as left in game ${gameId}: ${errorMessage}`);
+                }
+              });
+
+              // Clean up the gameId mapping
+              socketToGameId.delete(socket.id);
+            }
           } else {
             // Multiple sockets for this player, decrement count
             playerIdToSocketCount.set(playerId, currentCount - 1);
@@ -681,4 +849,13 @@ export const initializeWebSocket = () => {
     logger.error("[WS]: Error initializing WebSocket", errorMessage);
     return undefined;
   }
+};
+
+// Cleanup function to stop all timers (useful for testing)
+export const cleanupWebSocketTimers = () => {
+  logger.info(`[WS]: Cleaning up ${activeIntervals.size} active timers`);
+  for (const intervalId of activeIntervals) {
+    clearInterval(intervalId);
+  }
+  activeIntervals.clear();
 };

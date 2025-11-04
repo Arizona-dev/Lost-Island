@@ -1,5 +1,4 @@
 import { GameState } from "./Game";
-import { WreckageObject, WreckageObjectList } from "./Objects";
 import { PlayerState } from "./Player";
 
 // Generic effects
@@ -39,7 +38,7 @@ export const handleWaterEffect = (
 
 export const handleProtectionEffect = (
   gameState: GameState,
-  playerId: string
+  _playerId: string
 ): GameState => {
   // Logic for handling protection effect
   // For example, checking if a player is targeted by a shooting action and negating that effect
@@ -71,8 +70,8 @@ export const handleVoteModifierEffect = (
 
 export const handleStealObjectEffect = (
   gameState: GameState,
-  playerId: string,
-  targetedPlayersId: string[]
+  _playerId: string,
+  _targetedPlayersId: string[]
 ): GameState => {
   // Logic for handling steal object effect
   // For example, stealing an object from another player
@@ -82,8 +81,8 @@ export const handleStealObjectEffect = (
 
 export const handleShootEffect = (
   gameState: GameState,
-  playerId: string,
-  targetedPlayersId: string[]
+  _playerId: string,
+  _targetedPlayersId: string[]
 ): GameState => {
   // Logic for handling shoot effect
   // For example, reducing the health of the targeted player
@@ -145,7 +144,7 @@ export const handleSicknessEffect = (
 
 export const handleSeeCardsEffect = (
   gameState: GameState,
-  playerId: string
+  _playerId: string
 ): GameState => {
   // Logic for handling see cards effect
   // For example, sending the player the list of wreckage objects
@@ -155,10 +154,8 @@ export const handleSeeCardsEffect = (
 
 export const handleWeatherEffect = (
   gameState: GameState,
-  value?: number
+  _value?: number
 ): GameState => {
-  const weatherValue = value ?? 1;
-
   // Update the gameState based on the weather effect
   return gameState;
 };
@@ -167,7 +164,7 @@ export const handleWeatherEffect = (
 
 export const handleVegetableGrinder = (
   gameState: GameState,
-  playerId: string
+  _playerId: string
 ): GameState => {
   // Logic for handling vegetable grinder effect
   // For example, converting food to water
@@ -177,7 +174,7 @@ export const handleVegetableGrinder = (
 
 export const handleShamanKit = (
   gameState: GameState,
-  playerId: string
+  _playerId: string
 ): GameState => {
   // Logic for handling shaman kit effect
   // For example, healing a player
@@ -187,7 +184,7 @@ export const handleShamanKit = (
 
 export const handleWhetstone = (
   gameState: GameState,
-  playerId: string
+  _playerId: string
 ): GameState => {
   // Logic for handling whetstone effect
   // For example, increasing the player's attack power

@@ -66,6 +66,11 @@ export type Player = {
   voteCount: number;
   status: "normal" | "sick" | "dead";
   objects: WreckageObject[];
+  isOnline?: boolean; // Presence status - defaults to true if not specified
+  offlineTimestamp?: number; // Timestamp when player went offline (for timer)
+  hasLeftGame?: boolean; // Whether player has completely left after grace period
+  turnTimeouts?: number; // Number of times player timed out during their turn
+  turnTimeoutStart?: number; // Timestamp when current turn timeout started
 };
 
 export type WreckageObject = {
@@ -133,13 +138,19 @@ export enum GameEvents {
   LEAVE_GAME = "LEAVE_GAME",
   PLAYER_JOINED = "PLAYER_JOINED",
   PLAYER_LEFT = "PLAYER_LEFT",
+  PLAYER_OFFLINE = "PLAYER_OFFLINE",
+  PLAYER_LEFT_GAME = "PLAYER_LEFT_GAME",
+  PLAYER_ONLINE = "PLAYER_ONLINE",
   GAME_STARTED = "GAME_STARTED",
   GAME_ENDED = "GAME_ENDED",
+  HOST_CHANGED = "HOST_CHANGED",
+  LOBBY_CLOSED = "LOBBY_CLOSED",
   GAME_RESET_TO_LOBBY = "GAME_RESET_TO_LOBBY",
   UPDATE_GAME_STATE = "UPDATE_GAME_STATE",
   YOUR_TURN = "YOUR_TURN",
   TURN_STARTED = "TURN_STARTED",
   TURN_ENDED = "TURN_ENDED",
+  TURN_TIMEOUT = "TURN_TIMEOUT",
   PLAYER_ACTION = "PLAYER_ACTION",
   ACTION_PROCESSED = "ACTION_PROCESSED",
   VOTE = "VOTE",

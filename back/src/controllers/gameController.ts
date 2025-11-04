@@ -25,7 +25,8 @@ export const getGameController = async (req: Request, res: Response) => {
   try {
     const game = await getGame(req.params.id, req.params.password);
     if (!game) {
-      return res.status(404).send("Game not found");
+      res.status(404).send("Game not found");
+      return;
     }
     res.json(game);
   } catch (error: unknown) {
@@ -35,7 +36,7 @@ export const getGameController = async (req: Request, res: Response) => {
   }
 };
 
-export const getGamesController = async (req: Request, res: Response) => {
+export const getGamesController = async (_req: Request, res: Response) => {
   try {
     const games = await getGames();
     res.json(games);

@@ -278,6 +278,94 @@ export const isPlayerInGame = (gameState: GameState, playerId: string) => {
   return gameState.players.some(player => player.id === playerId);
 };
 
+/**
+ * Remove a player from game state, handling turn management and game ending
+ * @param gameState - Current game state
+ * @param playerId - ID of player to remove
+ * @returns Updated game state with player removed
+ */
+export const removePlayerFromState = (gameState: GameState, playerId: string): GameState => {
+  // Filter out the player
+  const remainingPlayers = gameState.players.filter(player => player.id !== playerId);
+
+  // If no players remain, end the game
+  if (remainingPlayers.length === 0) {
+    return {
+      ...gameState,
+      players: [],
+      status: GameStatus.ENDED,
+      playerIdTurn: "",
+    };
+  }
+
+  // Check if the removed player was the current player
+  const wasCurrentPlayer = gameState.playerIdTurn === playerId;
+  let newPlayerIdTurn = gameState.playerIdTurn;
+
+  if (wasCurrentPlayer) {
+    // Find the next alive player in the original order (preserving the player array order)
+    const currentIndex = gameState.players.findIndex(player => player.id === playerId);
+    let nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % gameState.players.length;
+
+    // Find the next alive player after the removed one
+    let attempts = 0;
+    while (attempts < remainingPlayers.length) {
+      const nextPlayer = gameState.players[nextIndex];
+      if (nextPlayer && nextPlayer.id !== playerId && nextPlayer.status !== PlayerState.DEAD) {
+        newPlayerIdTurn = nextPlayer.id;
+        break;
+      }
+      nextIndex = (nextIndex + 1) % gameState.players.length;
+      attempts++;
+    }
+
+    // If we couldn't find a next player, use the first remaining alive player
+    if (newPlayerIdTurn === playerId) {
+      const firstAlive = remainingPlayers.find(player => player.status !== PlayerState.DEAD);
+      newPlayerIdTurn = firstAlive ? firstAlive.id : "";
+    }
+  }
+
+  return {
+    ...gameState,
+    players: remainingPlayers,
+    playerIdTurn: newPlayerIdTurn,
+  };
+};
+
+/**
+ * Remove a player from a game and persist to Redis
+ * @param gameId - The game ID
+ * @param playerId - ID of player to remove
+ * @returns Updated game state after player removal
+ * @throws Error if game not found or removal fails
+ */
+export const removePlayerFromGame = async (gameId: string, playerId: string): Promise<GameState> => {
+  try {
+    const gameState = await getGameState(gameId);
+
+    if (!gameState) {
+      throw new Error("Game not found");
+    }
+
+    // Remove the player from state
+    const newState = removePlayerFromState(gameState, playerId);
+
+    // Persist the updated state
+    await setGameState(gameId, newState);
+
+    // Emit PLAYER_LEFT event
+    const io = getIO();
+    io.to(gameId).emit(GameEvents.PLAYER_LEFT, { playerId });
+
+    return newState;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    logger.error(`Error removing player ${playerId} from game ${gameId}: ${errorMessage}`);
+    throw new Error("Error removing player from game");
+  }
+};
+
 // Sync players from database to gameState and deduplicate
 export const syncPlayersFromDatabase = (
   gameState: GameState,
@@ -350,7 +438,8 @@ export const getNextPlayerTurn = (gameState: GameState): string => {
   
   while (attempts < players.length) {
     const nextPlayer = players[nextIndex];
-    if (nextPlayer.status !== PlayerState.DEAD) {
+    // Skip dead players and players with 2+ timeouts who have left the game
+    if (nextPlayer.status !== PlayerState.DEAD && !(nextPlayer.hasLeftGame && (nextPlayer.turnTimeouts || 0) >= 2)) {
       return nextPlayer.id;
     }
     nextIndex = (nextIndex + 1) % players.length;

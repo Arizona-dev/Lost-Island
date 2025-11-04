@@ -5,6 +5,34 @@ import { Actions, GameState, Player, GameEvents } from "../types";
 import type { Game } from "../types";
 import { getGame } from "../services/gameService";
 
+// Countdown timer component for offline players (30 seconds grace period)
+const OfflineTimer = ({ offlineTimestamp }: { offlineTimestamp: number }) => {
+  const [timeLeft, setTimeLeft] = useState<number>(0);
+
+  useEffect(() => {
+    const calculateTimeLeft = () => {
+      const elapsed = Date.now() - offlineTimestamp;
+      const remaining = Math.max(0, 30000 - elapsed); // 30 seconds grace period
+      setTimeLeft(Math.ceil(remaining / 1000));
+    };
+
+    calculateTimeLeft();
+    const interval = setInterval(calculateTimeLeft, 1000);
+
+    return () => clearInterval(interval);
+  }, [offlineTimestamp]);
+
+  if (timeLeft <= 0) {
+    return null; // Timer expired, let parent component handle "LEFT" status
+  }
+
+  return (
+    <span className="text-xs bg-orange-600 text-orange-100 px-1 py-0.5 rounded ml-1">
+      {timeLeft}s
+    </span>
+  );
+};
+
 const Game = () => {
   const gameCode = window.location.pathname.split("/").pop();
   const navigate = useNavigate();
@@ -43,6 +71,12 @@ const Game = () => {
       socket.off("PLAYER_LEFT");
       socket.off(GameEvents.GAME_ENDED);
       socket.off(GameEvents.GAME_RESET_TO_LOBBY);
+      socket.off(GameEvents.PLAYER_OFFLINE);
+      socket.off(GameEvents.PLAYER_LEFT_GAME);
+      socket.off(GameEvents.PLAYER_ONLINE);
+      socket.off(GameEvents.HOST_CHANGED);
+      socket.off(GameEvents.LOBBY_CLOSED);
+      socket.off(GameEvents.TURN_TIMEOUT);
 
       // Clear all state to prevent any re-rendering
       setShowEndScreen(false);
@@ -104,7 +138,35 @@ const Game = () => {
 
     socket.on("GAME_STARTED", (gameState) => {
       console.log("GAME_STARTED reçu du serveur", gameState);
-      setGameData(gameState);
+      // Preserve existing presence and timeout status when game starts
+      const currentPresenceStatus = new Map();
+      gameData?.players?.forEach(player => {
+        currentPresenceStatus.set(player.id, {
+          isOnline: player.isOnline,
+          offlineTimestamp: player.offlineTimestamp,
+          hasLeftGame: player.hasLeftGame,
+          turnTimeouts: player.turnTimeouts,
+          turnTimeoutStart: player.turnTimeoutStart
+        });
+      });
+
+      const stateWithOnlinePlayers = {
+        ...gameState,
+        players: gameState.players?.map((player: Player) => {
+          const existingStatus = currentPresenceStatus.get(player.id);
+          return {
+            ...player,
+            isOnline: existingStatus?.isOnline !== undefined
+              ? existingStatus.isOnline
+              : true, // Default to online for new players
+            offlineTimestamp: existingStatus?.offlineTimestamp,
+            hasLeftGame: existingStatus?.hasLeftGame,
+            turnTimeouts: existingStatus?.turnTimeouts,
+            turnTimeoutStart: existingStatus?.turnTimeoutStart
+          };
+        }) || []
+      };
+      setGameData(stateWithOnlinePlayers);
       // TODO : Afficher un message de confirmation
     });
 
@@ -116,14 +178,43 @@ const Game = () => {
         return;
       }
 
+      // Preserve existing presence and timeout status when updating game state
+      const currentPresenceStatus = new Map();
+      gameData?.players?.forEach(player => {
+        currentPresenceStatus.set(player.id, {
+          isOnline: player.isOnline,
+          offlineTimestamp: player.offlineTimestamp,
+          hasLeftGame: player.hasLeftGame,
+          turnTimeouts: player.turnTimeouts,
+          turnTimeoutStart: player.turnTimeoutStart
+        });
+      });
+
+      const stateWithOnlinePlayers = {
+        ...newState,
+        players: newState.players?.map((player: Player) => {
+          const existingStatus = currentPresenceStatus.get(player.id);
+          return {
+            ...player,
+            isOnline: existingStatus?.isOnline !== undefined
+              ? existingStatus.isOnline
+              : true, // Default to online for new players
+            offlineTimestamp: existingStatus?.offlineTimestamp,
+            hasLeftGame: existingStatus?.hasLeftGame,
+            turnTimeouts: existingStatus?.turnTimeouts,
+            turnTimeoutStart: existingStatus?.turnTimeoutStart
+          };
+        }) || []
+      };
+
       // Vérifier si le joueur actuel est toujours dans la partie AVANT de mettre à jour l'état
       const currentPlayerId = localStorage.getItem("playerId");
-      const isPlayerStillInGame = newState.players?.some(
+      const isPlayerStillInGame = stateWithOnlinePlayers.players?.some(
         (player: Player) => player.id === currentPlayerId
       );
 
       // Mettre à jour l'état avec le nouveau state complet (pas de merge)
-      setGameData(newState);
+      setGameData(stateWithOnlinePlayers);
 
       // Si le joueur n'est plus dans la partie, rediriger vers le lobby
       if (!isPlayerStillInGame && currentPlayerId) {
@@ -167,6 +258,145 @@ const Game = () => {
       }
     });
 
+    // Presence Management: Handle player online/offline status
+    socket.on(GameEvents.PLAYER_OFFLINE, ({ playerId, offlineTimestamp }) => {
+      console.log(`🔴 PLAYER_OFFLINE: Frontend received event for player ${playerId} at ${offlineTimestamp}`);
+      console.log(`🔴 PLAYER_OFFLINE: Current pathname: ${window.location.pathname}`);
+      // Don't handle if we're not on the game route anymore
+      if (!window.location.pathname.startsWith("/game/")) {
+        console.log(`🔴 PLAYER_OFFLINE: Ignoring event - not on game route`);
+        return;
+      }
+
+      // Update player presence status with timestamp
+      setGameData(prev => {
+        if (!prev) return prev;
+        console.log(`🔴 Updating player ${playerId} to offline in state`);
+        const updatedPlayers = prev.players.map(player =>
+          player.id === playerId ? {
+            ...player,
+            isOnline: false,
+            offlineTimestamp: offlineTimestamp || Date.now()
+          } : player
+        );
+        console.log(`🔴 Updated players:`, updatedPlayers.map(p => ({id: p.id, online: p.isOnline})));
+        return {
+          ...prev,
+          players: updatedPlayers
+        };
+      });
+    });
+
+    socket.on(GameEvents.PLAYER_LEFT_GAME, ({ playerId }) => {
+      console.log(`⚫ PLAYER_LEFT_GAME: Player ${playerId} has left the game after grace period`);
+      // Don't handle if we're not on the game route anymore
+      if (!window.location.pathname.startsWith("/game/")) {
+        return;
+      }
+
+      // Mark player as having left the game
+      setGameData(prev => {
+        if (!prev) return prev;
+        console.log(`⚫ Marking player ${playerId} as left game`);
+        const updatedPlayers = prev.players.map(player =>
+          player.id === playerId ? {
+            ...player,
+            hasLeftGame: true,
+            isOnline: false,
+            offlineTimestamp: undefined // Clear offline timestamp since they've officially left
+          } : player
+        );
+        return {
+          ...prev,
+          players: updatedPlayers
+        };
+      });
+    });
+
+    socket.on(GameEvents.PLAYER_ONLINE, ({ playerId }) => {
+      console.log(`🟢 PLAYER_ONLINE: Player ${playerId} came back online`);
+      // Don't handle if we're not on the game route anymore
+      if (!window.location.pathname.startsWith("/game/")) {
+        return;
+      }
+
+      // Update player presence status and clear left game status
+      setGameData(prev => {
+        if (!prev) return prev;
+        console.log(`🟢 Updating player ${playerId} to online in state`);
+        const updatedPlayers = prev.players.map(player =>
+          player.id === playerId ? {
+            ...player,
+            isOnline: true,
+            offlineTimestamp: undefined,
+            hasLeftGame: false, // Clear left game status on reconnection
+            turnTimeouts: 0 // Reset turn timeouts on reconnection
+          } : player
+        );
+        console.log(`🟢 Updated players:`, updatedPlayers.map(p => ({id: p.id, online: p.isOnline})));
+        return {
+          ...prev,
+          players: updatedPlayers
+        };
+      });
+    });
+
+    // Host Management: Handle host changes
+    socket.on(GameEvents.HOST_CHANGED, ({ newHostId, newHostName }) => {
+      console.log(`Host changed to ${newHostName} (${newHostId})`);
+      // Don't handle if we're not on the game route anymore
+      if (!window.location.pathname.startsWith("/game/")) {
+        return;
+      }
+
+      // Update game settings with new host
+      setGameSettings(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          partyOwner: { id: newHostId, name: newHostName }
+        };
+      });
+    });
+
+    // Lobby Management: Handle lobby closure
+    socket.on(GameEvents.LOBBY_CLOSED, ({ gameId }) => {
+      console.log(`Lobby ${gameId} was closed`);
+      // Don't handle if we're not on the game route anymore
+      if (!window.location.pathname.startsWith("/game/")) {
+        return;
+      }
+
+      // Navigate back to lobby
+      navigate("/lobby");
+    });
+
+    // Turn Management: Handle turn timeouts and auto-actions for disconnected players
+    socket.on(GameEvents.TURN_TIMEOUT, ({ playerId, timeoutCount, actionPerformed }) => {
+      console.log(`⏰ TURN_TIMEOUT: Player ${playerId} timed out (${timeoutCount}/2) and performed ${actionPerformed || 'unknown action'}`);
+      // Don't handle if we're not on the game route anymore
+      if (!window.location.pathname.startsWith("/game/")) {
+        return;
+      }
+
+      // Update player timeout count in state
+      setGameData(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          players: prev.players.map(player =>
+            player.id === playerId ? { ...player, turnTimeouts: timeoutCount } : player
+          )
+        };
+      });
+
+      // If this is the 2nd timeout, show a message that turns will be skipped
+      if (timeoutCount >= 2) {
+        console.log(`Player ${playerId} has timed out twice - their turns will be skipped`);
+        // You could add a toast notification here
+      }
+    });
+
     return () => {
       // Only clean up if not navigating away
       if (!shouldNavigateToLobby) {
@@ -176,6 +406,12 @@ const Game = () => {
         socket.off("PLAYER_LEFT");
         socket.off(GameEvents.GAME_ENDED);
         socket.off(GameEvents.GAME_RESET_TO_LOBBY);
+        socket.off(GameEvents.PLAYER_OFFLINE);
+        socket.off(GameEvents.PLAYER_LEFT_GAME);
+        socket.off(GameEvents.PLAYER_ONLINE);
+        socket.off(GameEvents.HOST_CHANGED);
+        socket.off(GameEvents.LOBBY_CLOSED);
+        socket.off(GameEvents.TURN_TIMEOUT);
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -318,10 +554,34 @@ const Game = () => {
                   {gameData?.players?.map((player) => (
                     <div
                       key={player.id}
-                      className={`flex items-center justify-between p-2 rounded ${player.status === "dead" ? "bg-red-900 bg-opacity-30" : "bg-green-900 bg-opacity-30"
-                        }`}
+                      className={`flex items-center justify-between p-2 rounded ${
+                        player.status === "dead"
+                          ? "bg-red-900 bg-opacity-30"
+                          : player.isOnline === false
+                          ? "bg-gray-700 bg-opacity-50"
+                          : "bg-green-900 bg-opacity-30"
+                      }`}
                     >
-                      <span className="text-gray-200">{player.name || "Joueur sans nom"}</span>
+                      <div className="flex items-center gap-2">
+                        <span className={player.isOnline === false ? "text-gray-400" : "text-gray-200"}>
+                          {player.name || "Joueur sans nom"}
+                        </span>
+                        {gameSettings?.partyOwner?.id === player.id && (
+                          <span className="text-yellow-400" title="Host">👑</span>
+                        )}
+                        {player.hasLeftGame ? (
+                          <div className="w-2 h-2 bg-gray-500 rounded-full" title="Left Game"></div>
+                        ) : player.isOnline === false ? (
+                          <div className="flex items-center gap-1">
+                            <div className="w-2 h-2 bg-orange-500 rounded-full" title="Offline"></div>
+                            {player.offlineTimestamp && (
+                              <OfflineTimer offlineTimestamp={player.offlineTimestamp} />
+                            )}
+                          </div>
+                        ) : (
+                          <div className="w-2 h-2 bg-green-500 rounded-full" title="Online"></div>
+                        )}
+                      </div>
                       <span className="text-2xl">
                         {player.status === "dead" ? "💀" : player.status === "sick" ? "🤒" : "😀"}
                       </span>
@@ -404,7 +664,26 @@ const Game = () => {
                         />
                       </div>
                       <div className="flex flex-col items-start">
-                        <span>{player.name || "Joueur sans nom"}</span>
+                        <div className="flex items-center gap-2">
+                          <span className={player.isOnline === false ? "text-gray-400" : ""}>
+                            {player.name || "Joueur sans nom"}
+                          </span>
+                          {gameSettings?.partyOwner?.id === player.id && (
+                            <span className="text-yellow-400" title="Host">👑</span>
+                          )}
+                          {player.hasLeftGame ? (
+                            <div className="w-2 h-2 bg-gray-500 rounded-full" title="Left Game"></div>
+                          ) : player.isOnline === false ? (
+                            <div className="flex items-center gap-1">
+                              <div className="w-2 h-2 bg-orange-500 rounded-full" title="Offline"></div>
+                              {player.offlineTimestamp && (
+                                <OfflineTimer offlineTimestamp={player.offlineTimestamp} />
+                              )}
+                            </div>
+                          ) : (
+                            <div className="w-2 h-2 bg-green-500 rounded-full" title="Online"></div>
+                          )}
+                        </div>
                         <span>
                           {player.status === "dead"
                             ? "💀"
@@ -612,7 +891,26 @@ const Game = () => {
                               />
 
                               <div className="flex flex-col items-start">
-                                <span>{player.name || "Joueur sans nom"}</span>
+                                <div className="flex items-center gap-2">
+                                  <span className={player.isOnline === false ? "text-gray-400" : ""}>
+                                    {player.name || "Joueur sans nom"}
+                                  </span>
+                                  {gameSettings?.partyOwner?.id === player.id && (
+                                    <span className="text-yellow-400" title="Host">👑</span>
+                                  )}
+                                  {player.hasLeftGame ? (
+                                    <div className="w-2 h-2 bg-gray-500 rounded-full" title="Left Game"></div>
+                                  ) : player.isOnline === false ? (
+                                    <div className="flex items-center gap-1">
+                                      <div className="w-2 h-2 bg-orange-500 rounded-full" title="Offline"></div>
+                                      {player.offlineTimestamp && (
+                                        <OfflineTimer offlineTimestamp={player.offlineTimestamp} />
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="w-2 h-2 bg-green-500 rounded-full" title="Online"></div>
+                                  )}
+                                </div>
                                 {isCurrentPlayer && (
                                   <span className="text-xs text-gray-400 italic">(Vous)</span>
                                 )}
