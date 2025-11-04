@@ -27,7 +27,7 @@ const OfflineTimer = ({ offlineTimestamp }: { offlineTimestamp: number }) => {
   }
 
   return (
-    <span className="text-xs bg-orange-600 text-orange-100 px-1 py-0.5 rounded ml-1">
+    <span className="text-xs bg-orange-600 text-orange-100 px-1 py-0.5 rounded-sm ml-1">
       {timeLeft}s
     </span>
   );
@@ -516,7 +516,7 @@ const Game = () => {
         <img
           src="/assets/island_1.webp"
           alt="ile"
-          className="w-full h-full object-cover -z-10 absolute top-0 left-0 filter blur-sm opacity-80"
+          className="w-full h-full object-cover -z-10 absolute top-0 left-0 filter blur-xs opacity-80"
         />
         <div className="bg-gray-900 bg-opacity-95 rounded-lg p-8 max-w-4xl w-full mx-4 z-10 border-4 border-red-600">
           <div className="flex flex-col items-center gap-6">
@@ -615,7 +615,7 @@ const Game = () => {
       <img
         src="/assets/island_1.webp"
         alt="ile"
-        className="w-full h-full object-cover -z-10 absolute top-0 left-0 filter blur-sm opacity-80"
+        className="w-full h-full object-cover -z-10 absolute top-0 left-0 filter blur-xs opacity-80"
       />
       {isPlayerDead && (
         <div className="w-full bg-red-900 bg-opacity-95 border-b-4 border-red-600 p-4 z-50">
@@ -878,7 +878,7 @@ const Game = () => {
                               }
                             }}
                             disabled={isPlayerDead || isCurrentPlayer}
-                            className={`p-0 h-12 w-12 rounded-full focus:outline-none ${isPlayerDead || isCurrentPlayer
+                            className={`p-0 h-12 w-12 rounded-full focus:outline-hidden ${isPlayerDead || isCurrentPlayer
                                 ? "cursor-not-allowed opacity-50"
                                 : "hover:ring-4 hover:ring-blue-500 cursor-pointer"
                               }`}
@@ -1023,7 +1023,7 @@ const Game = () => {
                   onClick={() => {
                     socket.emit("RESET_GAME", { gameId: gameData.id });
                   }}
-                  className="bg-red-700 hover:bg-red-800 text-white font-bold py-2 px-4 rounded"
+                  className="bg-red-700 hover:bg-red-800 text-white font-bold py-2 px-4 rounded-sm"
                 >
                   Reset Game
                 </button> */}
@@ -1037,7 +1037,7 @@ const Game = () => {
                 onClick={() => {
                   socket.emit("RESET_GAME", { gameId: gameData.id });
                 }}
-                className="bg-red-700 hover:bg-red-800 text-white font-bold py-2 px-4 rounded w-full"
+                className="bg-red-700 hover:bg-red-800 text-white font-bold py-2 px-4 rounded-sm w-full"
               >
                 🔄 Réinitialiser la partie et retourner au lobby
               </button>

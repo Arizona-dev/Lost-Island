@@ -29,7 +29,7 @@ export const Home = () => {
   return (
     <div className="flex flex-col gap-8 justify-center items-center w-screen">
       <h1 className="w-full max-w-xs text-justify font-bold mb-4">
-        Galerapagos
+        Island Exile
       </h1>
       <input
         className="w-full max-w-xs p-2 border-2 border-gray-300 rounded-lg"

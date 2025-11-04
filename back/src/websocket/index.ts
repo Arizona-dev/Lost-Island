@@ -237,7 +237,8 @@ export const initializeWebSocket = () => {
 
     // Helper function to get unique online players count
     const getUniqueOnlinePlayersCount = (): number => {
-      return playerIdToSocketCount.size;
+      // Count all connected sockets, not just players in games
+      return io.sockets.sockets.size;
     };
 
     // Timer to check for expired votes and turn timeouts every second
@@ -750,11 +751,12 @@ export const initializeWebSocket = () => {
 
       // Gestion de la déconnexion d'un client (joueur)
       socket.on("disconnect", async (reason) => {
-        logger.info(`[WS]: DISCONNECT EVENT TRIGGERED: ${socket.id}, reason: ${reason}`);
-
         // Remove player tracking for this socket
         const playerId = socketToPlayerId.get(socket.id);
-        logger.info(`[WS]: Player ID for disconnected socket ${socket.id}: ${playerId}`);
+        const gameId = socketToGameId.get(socket.id);
+
+        logger.info(`[WS]: Player disconnected - socket: ${socket.id}, reason: ${reason}, playerId: ${playerId}, gameId: ${gameId}`);
+
         if (playerId) {
           socketToPlayerId.delete(socket.id);
           const currentCount = playerIdToSocketCount.get(playerId) || 0;
@@ -764,10 +766,6 @@ export const initializeWebSocket = () => {
             playerIdToSocketCount.delete(playerId);
 
             // Presence Management: Handle player disconnection
-            // Get the gameId from our tracking map
-            const gameId = socketToGameId.get(socket.id);
-
-            logger.info(`[WS]: Player ${playerId} disconnected, gameId: ${gameId}`);
 
             if (gameId) {
               // Find all OTHER sockets that belong to players in this game

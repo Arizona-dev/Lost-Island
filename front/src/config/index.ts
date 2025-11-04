@@ -1,5 +1,5 @@
 export default {
-  appName: "Galerapagos",
+  appName: "Island Exile",
   api: {
     url: "http://localhost:3000",
   },

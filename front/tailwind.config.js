@@ -3,7 +3,11 @@ export default {
   purge: ["./src/**/*.{js,jsx,ts,tsx}"],
   darkMode: true,
   theme: {
-    extend: {},
+    extend: {
+      animation: {
+        'fade-in': 'fadeIn 0.5s ease-out forwards',
+      },
+    },
   },
   variants: {
     extend: {},

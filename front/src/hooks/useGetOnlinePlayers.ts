@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import socket from "../socket";
 
 const useGetOnlinePlayers = () => {
-  const [onlinePlayers, setOnlinePlayers] = useState<number>(0);
+  const [onlinePlayers, setOnlinePlayers] = useState<number | null>(null);
 
   useEffect(() => {
     // Écouter l'événement 'onlinePlayers' pour mettre à jour le nombre de joueurs en ligne

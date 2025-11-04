@@ -1,6 +1,6 @@
-# Skironia Island
+# Island Exile
 
-A multiplayer survival game where players must work together to survive on a deserted island and build a raft to escape before a hurricane arrives.
+A multiplayer survival game where players must work together to survive on a deserted island and build a raft to escape before a hurricane arrives. Join the ultimate island survival adventure!
 
 ## 🎮 Game Overview
 
@@ -13,7 +13,7 @@ The only solution: build a raft together. But don't wait too long, as clouds on 
 This is a full-stack application with separate frontend and backend:
 
 ```
-Sirkonia/
+StormRefuge/
 ├── back/              # Backend (Node.js + Express + TypeScript)
 │   ├── src/
 │   │   ├── config/          # Configuration files
@@ -57,7 +57,7 @@ Sirkonia/
 The project includes comprehensive tests for both backend and frontend:
 
 ```
-Sirkonia/
+StormRefuge/
 ├── back/tests/               # Backend tests (Jest)
 │   ├── websocket/            # Socket event tests
 │   ├── game/                 # Game logic tests
@@ -114,7 +114,7 @@ The test suite covers:
 
 ```bash
 git clone <repository-url>
-cd Sirkonia
+cd StormRefuge
 ```
 
 ### 2. Start Infrastructure Services
@@ -167,7 +167,7 @@ Create a `.env` file in the `back` directory (use `.env.example` as a template):
 
 ```env
 # Database Configuration
-MONGODB_URI=mongodb://localhost:27017/sirkonia
+MONGODB_URI=mongodb://localhost:27017/storm-refuge
 
 # Server Configuration
 PORT=3000

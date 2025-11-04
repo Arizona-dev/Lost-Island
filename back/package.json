@@ -1,7 +1,7 @@
 {
-  "name": "skironia-island-backend",
+  "name": "island-exile-backend",
   "version": "1.0.0",
-  "description": "Backend for the Skironia Island game",
+  "description": "Backend for the Island Exile game",
   "main": "build/server.js",
   "scripts": {
     "start": "node build/server.js",

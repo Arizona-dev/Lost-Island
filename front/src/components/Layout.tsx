@@ -42,10 +42,12 @@ export const Layout = () => {
   }, [navigate]);
 
   return (
-    <div className="flex flex-col gap-8 items-center w-screen h-screen">
+    <div className="flex flex-col items-center w-screen min-h-screen">
       <Navbar />
       {!loggedIn && <Login />}
-      <Outlet />
+      <div className="mt-16 w-full flex justify-center items-center">
+        <Outlet />
+      </div>
     </div>
   );
 };
